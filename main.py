@@ -1,4 +1,5 @@
 import knu_rl_env.grid_survivor as knu
+import torch
 
 '''
 knu_rl_env.grid_adventure.GridAdventureAgent을 상속해서
@@ -30,4 +31,6 @@ def train():
 
 if __name__ == '__main__':
     agent = '''여러분이 정의하고 학습시킨 에이전트를 불러오는 코드를 넣으세요.'''
-    knu.evaluate(agent)
+    # knu.evaluate(agent)
+    t = torch.tensor([1, 2, 3])
+    print(t)
