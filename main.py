@@ -77,6 +77,9 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
 
+    def save(self):
+        torch.save(self.policy_net.state_dict(), 'model.pth')
+
 def train(episodes):
     agent = GridSurvivorRLAgent()
     history = []
