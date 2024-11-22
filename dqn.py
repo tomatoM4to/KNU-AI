@@ -35,7 +35,7 @@ class DQN(nn.Module):
         if self.grid_size * self.grid_size != n_observations:
             raise ValueError("n_observations must be a perfect square")
 
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
 
         conv_out_size = self.grid_size * self.grid_size * 64
@@ -76,7 +76,7 @@ def reset_state(env):
 def calculate_reward(before_bee, after_bee, hp, e):
     r = before_bee - after_bee
     r *= hp / 100.0 * e
-    return r * 3
+    return r * 10
 
 
 def record_history(history):

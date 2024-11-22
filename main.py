@@ -23,8 +23,8 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
         self.LR = 1e-4
 
         self.EPS_START = 1.0
-        self.EPS_END = 0.01
-        self.EPS_DECAY = 20000
+        self.EPS_END = 0.1
+        self.EPS_DECAY = 200000
 
         self.n_actions = 3
         self.state = reset_state(env.reset()[0])[0]
@@ -41,6 +41,8 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
 
     def act(self, state):
         e = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        self.steps_done += 1
+
         if np.random.rand() > e:
             with torch.no_grad():
                 return self.policy_net(state).max(1).indices.view(1, 1)
@@ -79,6 +81,9 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
 
     def save(self):
         torch.save(self.policy_net.state_dict(), 'model.pth')
+
+    def get_e(self):
+        return self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
 
 def train(episodes):
     agent = GridSurvivorRLAgent()
@@ -126,15 +131,17 @@ def train(episodes):
 
             if done:
                 break
-        print(f'Episode {e} - Reward: {record_reward}, after_bee: {after_bee}')
+        if e % 500 == 0:
+            print(f'Episode {e} - Reward: {record_reward}, after_bee: {after_bee}, e: {agent.get_e()}, steps: {agent.steps_done}')
+            record_history(history)
         history.append(record_reward)
-
+    agent.save()
     return history
 
 
 
 if __name__ == '__main__':
-    history = train(600)
+    history = train(5000)
     record_history(history)
 
     # agent = '''여러분이 정의하고 학습시킨 에이전트를 불러오는 코드를 넣으세요.'''
