@@ -17,11 +17,11 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
     def __init__(self):
         super(GridSurvivorRLAgent, self).__init__()
 
-        self.BATCH_SIZE = 128
+        self.BATCH_SIZE = 256
         self.GAMMA = 0.99
-        self.EPS_START = 0.9
-        self.EPS_END = 0.05
-        self.EPS_DECAY = 1000
+        self.EPS_START = 1.0
+        self.EPS_END = 0.01
+        self.EPS_DECAY = 2000
         self.TAU = 0.005
         self.LR = 1e-4
 
@@ -34,7 +34,7 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
         self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
-        self.memory = ReplayMemory(10000)
+        self.memory = ReplayMemory(50000)
 
         self.steps_done = 0
 
@@ -101,7 +101,7 @@ def train(episodes):
             next_state, hp = reset_state(next_state)
             _bee = np.count_nonzero(next_state == 7)
             reward = calculate_reward(_bee, bee, hp, episode)
-            episode *= 0.95
+            episode *= 0.99
             bee = np.count_nonzero(next_state == 7)
             # 기록
             record_reward += reward

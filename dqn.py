@@ -29,19 +29,37 @@ class ReplayMemory(object):
         return len(self.memory)
 
 class DQN(nn.Module):
-
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 256)
-        self.layer2 = nn.Linear(256, 256)
-        self.layer3 = nn.Linear(256, 128)
-        self.layer4 = nn.Linear(128, n_actions)
+        # Grid를 2D로 재구성
+        self.grid_size = int(np.sqrt(n_observations))
+
+        # CNN layers
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+
+        # Calculate the size after convolutions
+        conv_out_size = self.grid_size * self.grid_size * 64
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(conv_out_size, 256)
+        self.fc2 = nn.Linear(256, n_actions)
 
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        x = F.relu(self.layer3(x))
-        x = self.layer4(x)
+        batch_size = x.size(0)
+        # Reshape input to 2D grid
+        x = x.view(batch_size, 1, self.grid_size, self.grid_size)
+
+        # Apply convolutions
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+
+        # Flatten
+        x = x.view(batch_size, -1)
+
+        # Fully connected layers
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
         return x
 
 mapping = {
