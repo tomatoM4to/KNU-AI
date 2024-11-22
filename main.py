@@ -19,11 +19,12 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
 
         self.BATCH_SIZE = 256
         self.GAMMA = 0.99
-        self.EPS_START = 1.0
-        self.EPS_END = 0.01
-        self.EPS_DECAY = 2000
         self.TAU = 0.005
         self.LR = 1e-4
+
+        self.EPS_START = 1.0
+        self.EPS_END = 0.01
+        self.EPS_DECAY = 20000
 
         self.n_actions = 3
         self.state = reset_state(env.reset()[0])[0]
@@ -39,10 +40,8 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
         self.steps_done = 0
 
     def act(self, state):
-        sample = random.random()
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
-        self.steps_done += 1
-        if sample > eps_threshold:
+        e = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        if np.random.rand() > e:
             with torch.no_grad():
                 return self.policy_net(state).max(1).indices.view(1, 1)
         else:
@@ -78,31 +77,25 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
 
-    def get_epsilon(self):
-        return self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
-
-    def reset(self):
-        self.steps_done = 0
-
 def train(episodes):
     agent = GridSurvivorRLAgent()
     history = []
     for e in range(episodes):
         state, hp = reset_state(env.reset()[0])
-        bee = np.count_nonzero(state == 7) # 꿀벌의 개수
-        _bee = bee
+        before_bee = np.count_nonzero(state == 7) # 꿀벌의 개수
+
         state = torch.tensor(state, device=device, dtype=torch.float32).unsqueeze(0)
         record_reward = 0
         episode = 1.0
         while True:
             action = agent.act(state)
             next_state, reward, terminated, truncated, _ = env.step(action.item())
-
             next_state, hp = reset_state(next_state)
-            _bee = np.count_nonzero(next_state == 7)
-            reward = calculate_reward(_bee, bee, hp, episode)
-            episode *= 0.99
-            bee = np.count_nonzero(next_state == 7)
+            after_bee = np.count_nonzero(next_state == 7)
+            reward = calculate_reward(before_bee, after_bee, hp, episode)
+            before_bee = after_bee
+            episode *= 0.999
+
             # 기록
             record_reward += reward
 
@@ -130,9 +123,8 @@ def train(episodes):
 
             if done:
                 break
-        if e % 50 == 0:
-            print(f'Episode {e} - Reward: {record_reward}, Bee: {bee}')
-        history.append(_bee)
+        print(f'Episode {e} - Reward: {record_reward}, after_bee: {after_bee}')
+        history.append(record_reward)
 
     return history
 

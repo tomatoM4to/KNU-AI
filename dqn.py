@@ -31,34 +31,27 @@ class ReplayMemory(object):
 class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        # Grid를 2D로 재구성
         self.grid_size = int(np.sqrt(n_observations))
+        if self.grid_size * self.grid_size != n_observations:
+            raise ValueError("n_observations must be a perfect square")
 
-        # CNN layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
 
-        # Calculate the size after convolutions
         conv_out_size = self.grid_size * self.grid_size * 64
 
-        # Fully connected layers
         self.fc1 = nn.Linear(conv_out_size, 256)
+        self.dropout = nn.Dropout(p=0.5)
         self.fc2 = nn.Linear(256, n_actions)
 
     def forward(self, x):
         batch_size = x.size(0)
-        # Reshape input to 2D grid
         x = x.view(batch_size, 1, self.grid_size, self.grid_size)
-
-        # Apply convolutions
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
-
-        # Flatten
         x = x.view(batch_size, -1)
-
-        # Fully connected layers
         x = F.relu(self.fc1(x))
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
 
@@ -80,12 +73,10 @@ def reset_state(env):
     state = vectorized_mapping(state)
     return state.flatten(), hp
 
-def calculate_reward(_bee, bee, hp, e):
-    if _bee == bee:
-        return 0.0
-    r = 1.0
+def calculate_reward(before_bee, after_bee, hp, e):
+    r = before_bee - after_bee
     r *= hp / 100.0 * e
-    return r
+    return r * 3
 
 
 def record_history(history):
