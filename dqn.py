@@ -35,7 +35,7 @@ class DQN(nn.Module):
         if self.grid_size * self.grid_size != n_observations:
             raise ValueError("n_observations must be a perfect square")
 
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, padding=1)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
 
         conv_out_size = self.grid_size * self.grid_size * 64
@@ -56,27 +56,29 @@ class DQN(nn.Module):
         return x
 
 mapping = {
-    'E':0,
-    'W':1,
-    'AL':3,
-    'AR':4,
-    'AU':5,
-    'AD':6,
-    'B':7,
-    'H':8,
-    'K':9,
+    'E':0.0,
+    'W':0.1,
+    'AL':0.3,
+    'AR':0.4,
+    'AU':0.5,
+    'AD':0.6,
+    'B':0.7,
+    'H':0.8,
+    'K':1.0,
 }
 
 def reset_state(env):
     state, hp = env['grid'], env['hit_points']
     vectorized_mapping = np.vectorize(mapping.get)
     state = vectorized_mapping(state)
+    state = state.astype(np.float32)
+
     return state.flatten(), hp
 
 def calculate_reward(before_bee, after_bee, hp, e):
     r = before_bee - after_bee
     r *= hp / 100.0 * e
-    return r * 10
+    return r * 3
 
 
 def record_history(history):

@@ -24,7 +24,7 @@ class GridSurvivorRLAgent(knu.GridSurvivorAgent):
 
         self.EPS_START = 1.0
         self.EPS_END = 0.1
-        self.EPS_DECAY = 200000
+        self.EPS_DECAY = 150000
 
         self.n_actions = 3
         self.state = reset_state(env.reset()[0])[0]
@@ -90,7 +90,7 @@ def train(episodes):
     history = []
     for e in range(episodes):
         state, hp = reset_state(env.reset()[0])
-        before_bee = np.count_nonzero(state == 7) # 꿀벌의 개수
+        before_bee = np.count_nonzero(state == 0.7) # 꿀벌의 개수
 
         state = torch.tensor(state, device=device, dtype=torch.float32).unsqueeze(0)
         record_reward = 0
@@ -99,7 +99,7 @@ def train(episodes):
             action = agent.act(state)
             next_state, reward, terminated, truncated, _ = env.step(action.item())
             next_state, hp = reset_state(next_state)
-            after_bee = np.count_nonzero(next_state == 7)
+            after_bee = np.count_nonzero(next_state == 0.7)
             reward = calculate_reward(before_bee, after_bee, hp, episode)
             before_bee = after_bee
             episode *= 0.999
