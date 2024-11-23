@@ -51,7 +51,7 @@ class GridSurvivorRLAgent:
         # Initialize steps
         self.steps_done = 0
 
-    def getEPS(self, episode):
+    def discountEPS(self, episode):
         # 3000 에피소드까지 선형 감소, 이후 지수 감소
         if episode <= 3000:
             self.eps_start *= 0.9995
@@ -59,8 +59,8 @@ class GridSurvivorRLAgent:
             self.eps_start *= 0.995
         return max(self.EPS_END, self.eps_start)
 
-    def resetEPS(self):
-        self.eps_start = 1.0
+    def getEPS(self):
+        return self.eps_start
 
     def act(self, state, episode):
         e = self.getEPS(episode)
@@ -164,7 +164,7 @@ def train(episodes):
 
         # 기록용 변수 초기화
         episode_reward = 0
-
+        walk = 0
         while True:
             # 에피소드 기반 행동 선택
             action = agent.act(current_state, e)
@@ -182,6 +182,7 @@ def train(episodes):
             game_steps *= 0.9995
             before_bee = after_bee
             episode_reward += reward
+            walk += 1
 
 
             # 현재 상태, reward를 프레임 프로세서에 전달, return-type: [bool, accumulated_reward]
@@ -207,8 +208,9 @@ def train(episodes):
 
             if terminated or truncated:
                 break
-        if e % 100 == 0:
-            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}')
+        if e % 10 == 0:
+            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}, EPS: {agent.getEPS(e)}, walk: {walk}')
+        agent.discountEPS(e)
         history.append(episode_reward)
     agent.save()
     return history
