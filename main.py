@@ -1,146 +1,218 @@
 import knu_rl_env.grid_survivor as knu
-import random
-import math
 import numpy as np
 
 import torch
 import torch.optim as optim
 import torch.nn as nn
 
-from dqn import DQN, ReplayMemory, Transition, reset_state, record_history, calculate_reward
+from dqn import DQN, ReplayMemory, Transition, reset_state, calculate_reward, FrameProcessor, record_history
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 env = knu.make_grid_survivor(show_screen=False)
 
-class GridSurvivorRLAgent(knu.GridSurvivorAgent):
+class GridSurvivorRLAgent:
     def __init__(self):
-        super(GridSurvivorRLAgent, self).__init__()
-
+        # Hyper parameters
         self.BATCH_SIZE = 128
         self.GAMMA = 0.99
-        self.EPS_START = 0.9
-        self.EPS_END = 0.05
-        self.EPS_DECAY = 1000
         self.TAU = 0.005
         self.LR = 1e-4
+        self.N_FRAMES = 4
+        self.FRAME_SKIP = 2
 
-        self.n_actions = 3
-        self.state = reset_state(env.reset()[0])[0]
-        self.n_observations = len(self.state)
+        # Epsilon greedy parameters
+        self.eps_start = 1.0
+        self.EPS_END = 0.05
 
-        self.policy_net = DQN(self.n_observations, self.n_actions).to(device)
-        self.target_net = DQN(self.n_observations, self.n_actions).to(device)
+        # Environment parameters
+        N_ACTIONS = 3
+        STATE, _ = reset_state(env.reset()[0])
+        N_OBSERVATIONS = len(STATE)
+
+        # Initialize frame processor
+        self.frame_processor = FrameProcessor(self.N_FRAMES, self.FRAME_SKIP)
+        self.frame_processor.reset(STATE)
+
+        # Initialize networks
+        self.policy_net = DQN(N_OBSERVATIONS, N_ACTIONS, self.N_FRAMES).to(device)
+        self.target_net = DQN(N_OBSERVATIONS, N_ACTIONS, self.N_FRAMES).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
-        self.memory = ReplayMemory(10000)
+        # Initialize optimizer
+        self.optimizer = optim.AdamW(self.policy_net.parameters(),
+                                   lr=self.LR,
+                                   amsgrad=True,
+                                   weight_decay=1e-5)  # Added weight decay
 
+        # Initialize memory
+        self.memory = ReplayMemory(100000)  # Increased memory size
+
+        # Initialize steps
         self.steps_done = 0
 
-    def act(self, state):
-        sample = random.random()
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
+    def getEPS(self, episode):
+        # 3000 에피소드까지 선형 감소, 이후 지수 감소
+        if episode <= 3000:
+            self.eps_start *= 0.9995
+        else:
+            self.eps_start *= 0.995
+        return max(self.EPS_END, self.eps_start)
+
+    def resetEPS(self):
+        self.eps_start = 1.0
+
+    def act(self, state, episode):
+        e = self.getEPS(episode)
+
         self.steps_done += 1
-        if sample > eps_threshold:
+
+        if np.random.rand() > e:
             with torch.no_grad():
                 return self.policy_net(state).max(1).indices.view(1, 1)
         else:
             return torch.tensor([[np.random.randint(3)]], device=device, dtype=torch.long)
 
     def optimize_model(self):
+        # 배치 크기만큼의 메모리가 쌓이지 않았다면 학습하지 않음
         if len(self.memory) < self.BATCH_SIZE:
             return
+
+        # 메모리에서 무작위로 배치 크기만큼 트랜지션 샘플링
         transitions = self.memory.sample(self.BATCH_SIZE)
         batch = Transition(*zip(*transitions))
 
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
+        # next_state 샘플들의 마스크 생성 (게임이 끝나지 않은 상태들)
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                              batch.next_state)),
+                                    device=device, dtype=torch.bool)
 
-        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+        # 다음 상태들을 하나의 텐서로 결합
+        non_final_next_states = torch.cat([s for s in batch.next_state
+                                         if s is not None])
 
+        # 현재 상태, 행동, 보상을 텐서로 변환
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
 
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
-
-        next_state_values = torch.zeros(self.BATCH_SIZE, device=device)
+        # Double DQN
         with torch.no_grad():
-            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+            # 정책 네트워크로 다음 상태에서의 최적 행동 선택
+            next_action_values = self.policy_net(non_final_next_states)
+            next_actions = next_action_values.max(1)[1].unsqueeze(1)
 
+            # 타겟 네트워크로 선택된 행동의 가치 계산
+            next_state_values = torch.zeros(self.BATCH_SIZE, device=device)
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).gather(1, next_actions).squeeze(1)
+
+        # Q(s,a) = r + γ * max Q(s',a')
         expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
 
+        # 현재 정책 네트워크의 Q 값 계산
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+
+        # Huber Loss를 사용하여 손실 계산
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
-        self.optimizer.step()
+        # 역전파 및 최적화
+        self.optimizer.zero_grad() # gradient 초기화
+        loss.backward() # 역전파
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 10.0) # 클리핑
+        self.optimizer.step() # 파라미터 업데이트
 
-    def get_epsilon(self):
-        return self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        return loss.item()
 
-    def reset(self):
-        self.steps_done = 0
+    def update_target_net(self):
+        target_net_state_dict = self.target_net.state_dict()
+        policy_net_state_dict = self.policy_net.state_dict()
+        for key in policy_net_state_dict:
+            target_net_state_dict[key] = policy_net_state_dict[key] * self.TAU + \
+                                       target_net_state_dict[key] * (1 - self.TAU)
+        self.target_net.load_state_dict(target_net_state_dict)
+
+    def save(self):
+        torch.save({
+            'policy_net_state_dict': self.policy_net.state_dict(),
+            'target_net_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'steps_done': self.steps_done
+        }, 'model.pth')
+
+    def load(self, filename):
+        checkpoint = torch.load(filename)
+        self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
+        self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.steps_done = checkpoint['steps_done']
 
 def train(episodes):
     agent = GridSurvivorRLAgent()
     history = []
-    for e in range(episodes):
+
+    for e in range(episodes + 1):
+        # 환경, EPS, game_steps, 초기 꿀벌 개수 초기화
         state, hp = reset_state(env.reset()[0])
-        bee = np.count_nonzero(state == 7) # 꿀벌의 개수
-        _bee = bee
-        state = torch.tensor(state, device=device, dtype=torch.float32).unsqueeze(0)
-        record_reward = 0
-        episode = 1.0
+        before_bee = np.count_nonzero(state == 0.6)
+        agent.resetEPS()
+        game_steps = 1
+
+        # frame processor 초기화, 현재 상태 저장
+        agent.frame_processor.reset(state)
+        current_state = agent.frame_processor.get_state_tensor()
+
+        # 기록용 변수 초기화
+        episode_reward = 0
+
         while True:
-            action = agent.act(state)
+            # 에피소드 기반 행동 선택
+            action = agent.act(current_state, e)
             next_state, reward, terminated, truncated, _ = env.step(action.item())
 
+            # String 타입 -> Float 타입
             next_state, hp = reset_state(next_state)
-            _bee = np.count_nonzero(next_state == 7)
-            reward = calculate_reward(_bee, bee, hp, episode)
-            episode *= 0.95
-            bee = np.count_nonzero(next_state == 7)
-            # 기록
-            record_reward += reward
 
-            reward = torch.tensor([reward], device=device)
-
-            done = terminated or truncated
-
-            if terminated:
+            # 보상 관련 프로세스
+            after_bee = np.count_nonzero(next_state == 0.6)
+            reward = calculate_reward(before_bee, after_bee, hp, game_steps)
+            if terminated or truncated: # 종료 시 -10점
+                reward = -10
                 next_state = None
-            else:
-                next_state = torch.tensor(next_state, dtype=torch.float32, device=device).unsqueeze(0)
+            game_steps *= 0.9995
+            before_bee = after_bee
+            episode_reward += reward
 
-            agent.memory.push(state, action, next_state, reward)
 
-            state = next_state
+            # 현재 상태, reward를 프레임 프로세서에 전달, return-type: [bool, accumulated_reward]
+            processed, total_reward = agent.frame_processor.process_frame(next_state, reward)
+            if processed:
+                next_state_tensor = None if next_state is None else agent.frame_processor.get_state_tensor()
 
-            agent.optimize_model()
+                # 메모리에 저장
+                agent.memory.push(current_state,
+                                action,
+                                next_state_tensor,
+                                torch.tensor([total_reward], device=device))
 
-            # 네트워크 업데이트
-            target_net_state_dict = agent.target_net.state_dict()
-            policy_net_state_dict = agent.policy_net.state_dict()
-            for key in policy_net_state_dict:
-                target_net_state_dict[key] = policy_net_state_dict[key] * agent.TAU + target_net_state_dict[key] * (1 - agent.TAU)
-            agent.target_net.load_state_dict(target_net_state_dict)
+                # 모델 최적화
+                loss = agent.optimize_model()
 
-            if done:
+                # 초기화
+                current_state = next_state_tensor
+
+            # 타겟 네트워크 업데이트
+            if agent.steps_done % 500 == 0:
+                agent.update_target_net()
+
+            if terminated or truncated:
                 break
-        if e % 50 == 0:
-            print(f'Episode {e} - Reward: {record_reward}, Bee: {bee}')
-        history.append(_bee)
-
+        if e % 100 == 0:
+            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}')
+        history.append(episode_reward)
+    agent.save()
     return history
 
-
-
 if __name__ == '__main__':
-    history = train(600)
+    history = train(5000)
     record_history(history)
-
-    # agent = '''여러분이 정의하고 학습시킨 에이전트를 불러오는 코드를 넣으세요.'''
-    # knu.evaluate(agent)
