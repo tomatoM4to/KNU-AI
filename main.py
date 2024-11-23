@@ -63,7 +63,7 @@ class GridSurvivorRLAgent:
         return self.eps_start
 
     def act(self, state, episode):
-        e = self.getEPS(episode)
+        e = self.getEPS()
 
         self.steps_done += 1
 
@@ -152,10 +152,9 @@ def train(episodes):
     history = []
 
     for e in range(episodes + 1):
-        # 환경, EPS, game_steps, 초기 꿀벌 개수 초기화
+        # 환경, game_steps, 초기 꿀벌 개수 초기화
         state, hp = reset_state(env.reset()[0])
         before_bee = np.count_nonzero(state == 0.6)
-        agent.resetEPS()
         game_steps = 1
 
         # frame processor 초기화, 현재 상태 저장
@@ -209,7 +208,7 @@ def train(episodes):
             if terminated or truncated:
                 break
         if e % 10 == 0:
-            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}, EPS: {agent.getEPS(e)}, walk: {walk}')
+            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}')
         agent.discountEPS(e)
         history.append(episode_reward)
     agent.save()
