@@ -146,19 +146,12 @@ def reset_state(env):
     state = state.astype(np.float32)
     return state, hp
 
-def calculate_reward(before_bee, after_bee, hp, game_steps):
-    # 꿀벌이 먹지 않았다면 0.1점
-    if before_bee == after_bee:
-        return 0.1
-
-    # 꿀벌을 먹었다면 기본 보상 10점
-    reward = 10
-
-    # 체력 보너스 (0.5 ~ 1.0)
-    survival_bonus = hp / 200.0
-
-    # 최소 보상 3점
-    return max(reward * survival_bonus * game_steps, 3)
+def calculate_reward(before_bee, after_bee, before_hp, after_hp):
+    if before_bee > after_bee: # 꿀벌을 먹었을때
+        return 1.0
+    if before_hp > after_hp: # 피가 감소했을때
+        return -1.0
+    return 0.0 # 그 외
 
 
 def record_history(history):

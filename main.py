@@ -174,9 +174,8 @@ def train(episodes):
 
     for e in range(episodes + 1):
         # 환경, game_steps, 초기 꿀벌 개수 초기화
-        state, hp = reset_state(env.reset()[0])
+        state, before_hp = reset_state(env.reset()[0])
         before_bee = np.count_nonzero(state == 0.6)
-        game_steps = 1
 
         # frame processor 초기화, 현재 상태 저장
         agent.frame_processor.reset(state)
@@ -191,17 +190,20 @@ def train(episodes):
             next_state, reward, terminated, truncated, _ = env.step(action.item())
 
             # String 타입 -> Float 타입
-            next_state, hp = reset_state(next_state)
+            next_state, after_hp = reset_state(next_state)
 
             # 보상 관련 프로세스
             after_bee = np.count_nonzero(next_state == 0.6)
-            reward = calculate_reward(before_bee, after_bee, hp, game_steps)
-            if terminated or truncated: # 종료 시 -10점
-                reward = -50
+            reward = calculate_reward(before_bee, after_bee, before_hp, after_hp)
+
+            if terminated or truncated: # 종료 시 -1.0점
+                reward = -1.0
                 next_state = None
-            if after_bee == 0: # 클리어
-                reward = 100
-            game_steps *= 0.9999
+
+            # 클리어시 reward 1.0
+            if after_bee == 0:
+                reward = 1.0
+
             before_bee = after_bee
             episode_reward += reward
             walk += 1
