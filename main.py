@@ -46,7 +46,7 @@ class GridSurvivorRLAgent:
                                    weight_decay=1e-5)  # Added weight decay
 
         # Initialize memory
-        self.memory = ReplayMemory(100000)  # Increased memory size
+        self.memory = ReplayMemory(50000)  # Increased memory size
 
         # Initialize steps
         self.steps_done = 0
