@@ -53,7 +53,7 @@ class GridSurvivorRLAgent:
 
     def discountEPS(self, episode):
         speed = 0.1 * (episode / 4000) ** 2
-        self.eps_start -= speed * (self.eps_start - self.EPS_END) / 20
+        self.eps_start -= speed * (self.eps_start - self.EPS_END) / 23
         self.eps_start = max(self.eps_start, self.EPS_END)
 
 
@@ -238,9 +238,11 @@ def train(episodes):
     return history
 
 if __name__ == '__main__':
+    import datetime
+    print("시작 시간:", datetime.datetime.now())
     history = train(4500)
     record_history(history)
-
+    print("종료 시간:", datetime.datetime.now())
     # agent = GridSurvivorRLAgent()
     # agent.reset_to_test()
     # knu.evaluate(agent)
