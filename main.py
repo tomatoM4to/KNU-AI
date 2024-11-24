@@ -146,7 +146,7 @@ def train(episodes):
         # 환경 초기화
         state, hp = reset_state(env.reset()[0])
         before_bee = np.count_nonzero(state[6])  # 채널 6이 꿀벌(B)에 해당
-        steps = 1.0
+        before_hp = 100
 
         # 상태를 텐서로 변환
         current_state = torch.FloatTensor(state).unsqueeze(0).to(device)  # (1, 채널 수, 높이, 너비)
@@ -162,10 +162,11 @@ def train(episodes):
 
             # 다음 상태 처리
             if not terminated and not truncated:
-                next_state, hp = reset_state(next_state_raw)
+                next_state, next_hp = reset_state(next_state_raw)
                 next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0).to(device)
             else:
                 next_state_tensor = None
+                next_hp = 0
 
             # 보상 계산
             if next_state_tensor is not None:
@@ -174,21 +175,22 @@ def train(episodes):
                 # 에피소드 종료 시에도 남은 꿀벌 수를 계산하기 위해 마지막 상태를 사용
                 after_bee = np.count_nonzero(next_state[6])
 
-            reward = calculate_reward(before_bee, after_bee, hp, walk)
+            reward = calculate_reward(before_bee, after_bee, before_hp, next_hp)
 
             # 모든 꿀벌을 구했는지 확인
             if after_bee == 0 and not terminated and not truncated:
                 # 모든 꿀벌을 구해서 에피소드가 종료되지 않은 경우
-                reward += 50
+                print("clear")
+                reward = 1.0
 
             # 에피소드가 종료되었을 때 패널티 부여
             if (terminated or truncated) and after_bee > 0:
-                reward -= 50
+                reward = -1.0
 
             before_bee = after_bee
+            before_hp = next_hp
             episode_reward += reward
             walk += 1
-            steps *= 0.9999
 
             # 메모리에 저장
             agent.memory.push(current_state,
@@ -209,8 +211,8 @@ def train(episodes):
                 break
 
 
-        if e % 100 == 0:
-            print(f'Episode {e} - Reward: {episode_reward}, bees left: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}')
+        if e % 10 == 0:
+            print(f'Episode {e} - Reward: {episode_reward}, bees left: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}, hp: {next_hp}')
 
         agent.discountEPS(e)
 
@@ -220,5 +222,5 @@ def train(episodes):
     return history
 
 if __name__ == '__main__':
-    history = train(4000)
+    history = train(3000)
     record_history(history)

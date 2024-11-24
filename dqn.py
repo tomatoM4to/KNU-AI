@@ -105,19 +105,12 @@ def reset_state(env):
     return state_tensor, hp
 
 # 보상 함수 수정
-def calculate_reward(before_bee, after_bee, hp, walk):
-    if before_bee == after_bee:
-        return -0.1 - (walk / 600.0)
-
-    reward = 0.0
-    if after_bee < before_bee:
-        # 꿀벌을 구하면 +10점
-        reward += 10.0
-
-    # 남은 체력에 보상 감소율 적용
-    reward += (hp / 100.0) * 5.0
-
-    return reward - (walk / 1200.0)
+def calculate_reward(before_bee, after_bee, before_hp, next_hp):
+    if before_bee > after_bee:
+        return 1.0
+    if before_hp > next_hp:
+        return -1.0
+    return 0.0
 
 
 def record_history(history):
