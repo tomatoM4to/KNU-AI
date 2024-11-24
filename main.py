@@ -47,8 +47,9 @@ class GridSurvivorRLAgent:
 
     def discountEPS(self, episode):
         # 탐험률을 천천히 감소시킴
-        self.eps_start -= (self.eps_start - self.EPS_END) / 1000
-        self.eps_start = max(self.EPS_END, self.eps_start)
+        speed = 0.1 * (episode / 4000) ** 2
+        self.eps_start -= speed * (self.eps_start - self.EPS_END) / 9
+        self.eps_start = max(self.eps_start, self.EPS_END)
 
     def getEPS(self):
         return self.eps_start
