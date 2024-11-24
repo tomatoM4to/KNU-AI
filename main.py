@@ -180,7 +180,7 @@ def train(episodes):
         # frame processor 초기화, 현재 상태 저장
         agent.frame_processor.reset(state)
         current_state = agent.frame_processor.get_state_tensor()
-
+        rewards = []
         # 기록용 변수 초기화
         episode_reward = 0
         walk = 0
@@ -207,7 +207,7 @@ def train(episodes):
             before_bee = after_bee
             episode_reward += reward
             walk += 1
-
+            before_hp = after_hp
 
             # 현재 상태, reward를 프레임 프로세서에 전달, return-type: [bool, accumulated_reward]
             processed, total_reward = agent.frame_processor.process_frame(next_state, reward)
@@ -234,6 +234,7 @@ def train(episodes):
                 break
         if e % 10 == 0:
             print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}')
+
         agent.discountEPS(e)
         history.append(episode_reward)
     agent.save()
