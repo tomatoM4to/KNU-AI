@@ -9,11 +9,67 @@ import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# 경험 리플레이를 위한 Transition 정의
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
-# 경험 리플레이 메모리 클래스
+
+class FrameProcessor:
+    def __init__(self, n_frames=4, frame_skip=1):
+        self.n_frames = n_frames
+        self.frame_skip = frame_skip
+        self.frame_diffs = None # deque 객체로 초기화됨
+        self.last_frame = None # 첫 프레임으로 초기화됨
+        self.skip_counter = 0 # 프레임 스킵 카운터
+        self.accumulated_reward = 0 # 누적 보상
+
+    def reset(self, initial_frame):
+        """
+        1. 마지막 프레임을 초기 프레임으로 설정
+        2. frame_diffs를 0으로 채워진 n_frames 크기의 deque로 초기화
+        3. 스킵 카운터 초기화
+        4. 누적 보상 초기화
+        """
+        self.last_frame = initial_frame
+        self.frame_diffs = deque([np.zeros_like(initial_frame)] * self.n_frames, maxlen=self.n_frames)
+        self.skip_counter = 0
+        self.accumulated_reward = 0
+
+    def process_frame(self, new_frame, reward):
+        self.skip_counter += 1
+        self.accumulated_reward += reward
+
+        """
+        1. frame_skip에 도달할시:
+        2. 현재 프레임과 마지막 프레임의 차이 계산
+        3. frame_diffs에 차이 추가
+        4. 마지막 프레임을 현재 프레임으로 설정
+        5. 스킵 카운터, 누적 보상 초기화
+        """
+        if self.skip_counter >= self.frame_skip:
+            # new_frame이 None이면 0으로 채워진 프레임 차이 사용
+            if new_frame is None:
+                frame_diff = np.zeros_like(self.last_frame)
+            else:
+                frame_diff = new_frame
+
+            self.frame_diffs.append(frame_diff)
+
+            total_reward = self.accumulated_reward # 누적 보상을 반환하기 위한 변수
+
+            self.last_frame = new_frame
+            self.skip_counter = 0
+            self.accumulated_reward = 0
+            return True, total_reward
+
+        return False, 0
+
+    def get_state(self):
+        return np.stack(self.frame_diffs, axis=0)
+
+    def get_state_tensor(self):
+        state = self.get_state()
+        return torch.FloatTensor(state).unsqueeze(0).to(device)
+
 class ReplayMemory(object):
 
     def __init__(self, capacity):
@@ -29,46 +85,25 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
-# DQN 모델 정의
 class DQN(nn.Module):
-    def __init__(self, height, width, n_actions, input_channels):
+    def __init__(self, grid_size, n_actions, n_frames):
         super(DQN, self).__init__()
 
-        self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=5, padding=2)
+        self.conv1 = nn.Conv2d(n_frames, 32, kernel_size=5, padding=2)
         self.pool1 = nn.MaxPool2d(2)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.pool2 = nn.MaxPool2d(2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
 
-        # 출력 크기 계산 함수 정의
-        def conv2d_size_out(size, kernel_size=3, stride=1, padding=1):
-            return (size + 2*padding - kernel_size) // stride + 1
+        # Calculate the size after convolutions and pooling
+        conv_out_size = grid_size // 4  # After two 2x2 pooling layers
+        conv_out_size = conv_out_size * conv_out_size * 64
 
-        def pool2d_size_out(size, kernel_size=2, stride=2):
-            return (size - kernel_size) // stride + 1
+        self.ln1 = nn.Linear(conv_out_size, 512)
 
-        # 높이와 너비 계산
-        h = height
-        w = width
+        self.ln2 = nn.Linear(512, n_actions)
 
-        h = conv2d_size_out(h, kernel_size=5, stride=1, padding=2)
-        h = pool2d_size_out(h, kernel_size=2, stride=2)
-        h = conv2d_size_out(h, kernel_size=3, stride=1, padding=1)
-        h = pool2d_size_out(h, kernel_size=2, stride=2)
-        h = conv2d_size_out(h, kernel_size=3, stride=1, padding=1)
-
-        w = conv2d_size_out(w, kernel_size=5, stride=1, padding=2)
-        w = pool2d_size_out(w, kernel_size=2, stride=2)
-        w = conv2d_size_out(w, kernel_size=3, stride=1, padding=1)
-        w = pool2d_size_out(w, kernel_size=2, stride=2)
-        w = conv2d_size_out(w, kernel_size=3, stride=1, padding=1)
-
-        conv_out_size = h * w * 64
-
-        self.fc1 = nn.Linear(conv_out_size, 512)
-        self.fc2 = nn.Linear(512, n_actions)
-
-        # 가중치 초기화
+        # Initialize weights
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -87,30 +122,43 @@ class DQN(nn.Module):
         x = F.relu(self.conv3(x))
 
         x = x.view(batch_size, -1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = F.relu(self.ln1(x))
+        x = self.ln2(x)
         return x
 
-# 상태 매핑을 위한 키 리스트
-mapping = ['E', 'W', 'AL', 'AR', 'AU', 'AD', 'B', 'H', 'K']
+mapping = {
+    'E': 0.0,
+    'W': 0.1,
+    'AL': 0.2,
+    'AR': 0.3,
+    'AU': 0.4,
+    'AD': 0.5,
+    'B': 0.6,
+    'H': 0.9,
+    'K': 1.0,
+}
 
-# 상태를 채널별로 분리하는 함수
+# String type to float type
 def reset_state(env):
-    state_grid, hp = env['grid'], env['hit_points']
-    channels = []
-    for key in mapping:
-        channel = (state_grid == key).astype(np.float32)
-        channels.append(channel)
-    state_tensor = np.stack(channels, axis=0)  # (채널 수, 높이, 너비)
-    return state_tensor, hp
+    state, hp = env['grid'], env['hit_points']
+    vectorized_mapping = np.vectorize(mapping.get)
+    state = vectorized_mapping(state)
+    state = state.astype(np.float32)
+    return state, hp
 
-# 보상 함수 수정
-def calculate_reward(before_bee, after_bee, before_hp, next_hp):
-    if before_bee > after_bee:
-        return 1.0
-    if before_hp > next_hp:
-        return -1.0
-    return 0.0
+def calculate_reward(before_bee, after_bee, hp, game_steps):
+    # 꿀벌이 먹지 않았다면 0.1점
+    if before_bee == after_bee:
+        return 0.1
+
+    # 꿀벌을 먹었다면 기본 보상 10점
+    reward = 10
+
+    # 체력 보너스 (0.5 ~ 1.0)
+    survival_bonus = hp / 200.0
+
+    # 최소 보상 3점
+    return max(reward * survival_bonus * game_steps, 3)
 
 
 def record_history(history):

@@ -5,7 +5,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 
-from dqn import DQN, ReplayMemory, Transition, reset_state, calculate_reward, record_history
+from dqn import DQN, ReplayMemory, Transition, reset_state, calculate_reward, FrameProcessor, record_history
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -18,6 +18,8 @@ class GridSurvivorRLAgent:
         self.GAMMA = 0.99
         self.TAU = 0.005
         self.LR = 1e-4
+        self.N_FRAMES = 4
+        self.FRAME_SKIP = 1
 
         # Epsilon greedy parameters
         self.eps_start = 1.0
@@ -26,11 +28,15 @@ class GridSurvivorRLAgent:
         # Environment parameters
         N_ACTIONS = 3
         STATE, _ = reset_state(env.reset()[0])
-        input_channels, height, width = STATE.shape
+        N_OBSERVATIONS = len(STATE)
+
+        # Initialize frame processor
+        self.frame_processor = FrameProcessor(self.N_FRAMES, self.FRAME_SKIP)
+        self.frame_processor.reset(STATE)
 
         # Initialize networks
-        self.policy_net = DQN(height, width, N_ACTIONS, input_channels).to(device)
-        self.target_net = DQN(height, width, N_ACTIONS, input_channels).to(device)
+        self.policy_net = DQN(N_OBSERVATIONS, N_ACTIONS, self.N_FRAMES).to(device)
+        self.target_net = DQN(N_OBSERVATIONS, N_ACTIONS, self.N_FRAMES).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
         # Initialize optimizer
@@ -40,21 +46,23 @@ class GridSurvivorRLAgent:
                                    weight_decay=1e-5)  # Added weight decay
 
         # Initialize memory
-        self.memory = ReplayMemory(50000)  # Increased memory size
+        self.memory = ReplayMemory(100000)  # Increased memory size
 
         # Initialize steps
         self.steps_done = 0
 
     def discountEPS(self, episode):
-        # 탐험률을 천천히 감소시킴
-        speed = 0.1 * (episode / 4000) ** 2
-        self.eps_start -= speed * (self.eps_start - self.EPS_END) / 9
-        self.eps_start = max(self.eps_start, self.EPS_END)
+        # 3000 에피소드까지 선형 감소, 이후 지수 감소
+        if episode <= 1800:
+            self.eps_start *= 0.9995
+        else:
+            self.eps_start *= 0.995
+        self.eps_start = max(self.EPS_END, self.eps_start)
 
     def getEPS(self):
         return self.eps_start
 
-    def act(self, state):
+    def act(self, state, episode):
         e = self.getEPS()
 
         self.steps_done += 1
@@ -144,81 +152,67 @@ def train(episodes):
     history = []
 
     for e in range(episodes + 1):
-        # 환경 초기화
+        # 환경, game_steps, 초기 꿀벌 개수 초기화
         state, hp = reset_state(env.reset()[0])
-        before_bee = np.count_nonzero(state[6])  # 채널 6이 꿀벌(B)에 해당
-        before_hp = 100
+        before_bee = np.count_nonzero(state == 0.6)
+        game_steps = 1
 
-        # 상태를 텐서로 변환
-        current_state = torch.FloatTensor(state).unsqueeze(0).to(device)  # (1, 채널 수, 높이, 너비)
+        # frame processor 초기화, 현재 상태 저장
+        agent.frame_processor.reset(state)
+        current_state = agent.frame_processor.get_state_tensor()
 
         # 기록용 변수 초기화
         episode_reward = 0
-        walk = 1
-
+        walk = 0
         while True:
-            # 행동 선택
-            action = agent.act(current_state)
-            next_state_raw, reward, terminated, truncated, _ = env.step(action.item())
+            # 에피소드 기반 행동 선택
+            action = agent.act(current_state, e)
+            next_state, reward, terminated, truncated, _ = env.step(action.item())
 
-            # 다음 상태 처리
-            if not terminated and not truncated:
-                next_state, next_hp = reset_state(next_state_raw)
-                next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0).to(device)
-            else:
-                next_state_tensor = None
-                next_hp = 0
+            # String 타입 -> Float 타입
+            next_state, hp = reset_state(next_state)
 
-            # 보상 계산
-            if next_state_tensor is not None:
-                after_bee = np.count_nonzero(next_state[6])
-            else:
-                # 에피소드 종료 시에도 남은 꿀벌 수를 계산하기 위해 마지막 상태를 사용
-                after_bee = np.count_nonzero(next_state[6])
-
-            reward = calculate_reward(before_bee, after_bee, before_hp, next_hp)
-
-            # 모든 꿀벌을 구했는지 확인
-            if after_bee == 0 and not terminated and not truncated:
-                # 모든 꿀벌을 구해서 에피소드가 종료되지 않은 경우
-                print("clear")
-                reward = 1.0
-
-            # 에피소드가 종료되었을 때 패널티 부여
-            if (terminated or truncated) and after_bee > 0:
-                reward = -1.0
-
+            # 보상 관련 프로세스
+            after_bee = np.count_nonzero(next_state == 0.6)
+            reward = calculate_reward(before_bee, after_bee, hp, game_steps)
+            if terminated or truncated: # 종료 시 -10점
+                reward = -50
+                next_state = None
+            if after_bee == 0: # 클리어
+                reward = 100
+            game_steps *= 0.9999
             before_bee = after_bee
-            before_hp = next_hp
             episode_reward += reward
             walk += 1
 
-            # 메모리에 저장
-            agent.memory.push(current_state,
-                              action,
-                              next_state_tensor,
-                              torch.tensor([reward], device=device))
 
-            # 모델 최적화
-            loss = agent.optimize_model()
+            # 현재 상태, reward를 프레임 프로세서에 전달, return-type: [bool, accumulated_reward]
+            processed, total_reward = agent.frame_processor.process_frame(next_state, reward)
+            if processed:
+                next_state_tensor = None if next_state is None else agent.frame_processor.get_state_tensor()
 
-            # 현재 상태 업데이트
-            current_state = next_state_tensor
+                # 메모리에 저장
+                agent.memory.push(current_state,
+                                action,
+                                next_state_tensor,
+                                torch.tensor([total_reward], device=device))
 
-            # 타겟 네트워크 소프트 업데이트
-            agent.update_target_net()
+                # 모델 최적화
+                loss = agent.optimize_model()
+
+                # 초기화
+                current_state = next_state_tensor
+
+            # 타겟 네트워크 업데이트
+            if agent.steps_done % 500 == 0:
+                agent.update_target_net()
 
             if terminated or truncated:
                 break
-
-
         if e % 10 == 0:
-            print(f'Episode {e} - Reward: {episode_reward}, bees left: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}, hp: {next_hp}')
-
+            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}')
         agent.discountEPS(e)
-
         history.append(episode_reward)
-
     agent.save()
     return history
 
