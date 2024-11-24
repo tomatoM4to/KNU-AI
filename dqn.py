@@ -14,7 +14,7 @@ Transition = namedtuple('Transition',
 
 
 class FrameProcessor:
-    def __init__(self, n_frames=4, frame_skip=2):
+    def __init__(self, n_frames=4, frame_skip=1):
         self.n_frames = n_frames
         self.frame_skip = frame_skip
         self.frame_diffs = None # deque 객체로 초기화됨
@@ -50,7 +50,7 @@ class FrameProcessor:
             if new_frame is None:
                 frame_diff = np.zeros_like(self.last_frame)
             else:
-                frame_diff = new_frame - self.last_frame
+                frame_diff = new_frame
 
             self.frame_diffs.append(frame_diff)
 
@@ -100,7 +100,7 @@ class DQN(nn.Module):
         conv_out_size = conv_out_size * conv_out_size * 64
 
         self.ln1 = nn.Linear(conv_out_size, 512)
-        self.dropout = nn.Dropout(p=0.3)  # Reduced dropout for better stability
+
         self.ln2 = nn.Linear(512, n_actions)
 
         # Initialize weights
@@ -123,7 +123,6 @@ class DQN(nn.Module):
 
         x = x.view(batch_size, -1)
         x = F.relu(self.ln1(x))
-        x = self.dropout(x)
         x = self.ln2(x)
         return x
 
@@ -147,19 +146,12 @@ def reset_state(env):
     state = state.astype(np.float32)
     return state, hp
 
-def calculate_reward(before_bee, after_bee, hp, game_steps):
-    # 꿀벌이 먹지 않았다면 0점
-    if before_bee == after_bee:
-        return 0
-
-    # 꿀벌을 먹었다면 기본 보상 5점
-    reward = (before_bee - after_bee) * 5
-
-    # 체력 보너스
-    survival_bonus = hp / 100.0
-
-    # 최소 보상 1점
-    return max(reward * survival_bonus * game_steps, 1)
+def calculate_reward(before_bee, after_bee, before_hp, after_hp):
+    if before_bee > after_bee: # 꿀벌을 먹었을때
+        return 1.0
+    if before_hp > after_hp: # 피가 감소했을때
+        return -1.0
+    return 0.0 # 그 외
 
 
 def record_history(history):

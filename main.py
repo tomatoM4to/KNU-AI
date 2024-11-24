@@ -19,7 +19,7 @@ class GridSurvivorRLAgent:
         self.TAU = 0.005
         self.LR = 1e-4
         self.N_FRAMES = 4
-        self.FRAME_SKIP = 2
+        self.FRAME_SKIP = 1
 
         # Epsilon greedy parameters
         self.eps_start = 1.0
@@ -46,24 +46,22 @@ class GridSurvivorRLAgent:
                                    weight_decay=1e-5)  # Added weight decay
 
         # Initialize memory
-        self.memory = ReplayMemory(100000)  # Increased memory size
+        self.memory = ReplayMemory(50000)  # Increased memory size
 
         # Initialize steps
         self.steps_done = 0
 
-    def getEPS(self, episode):
-        # 3000 에피소드까지 선형 감소, 이후 지수 감소
-        if episode <= 3000:
-            self.eps_start *= 0.9995
-        else:
-            self.eps_start *= 0.995
-        return max(self.EPS_END, self.eps_start)
+    def discountEPS(self, episode):
+        speed = 0.1 * (episode / 5000) ** 2
+        self.eps_start -= speed * (self.eps_start - self.EPS_END) / 20
+        self.eps_start = max(self.eps_start, self.EPS_END)
 
-    def resetEPS(self):
-        self.eps_start = 1.0
 
-    def act(self, state, episode):
-        e = self.getEPS(episode)
+    def getEPS(self):
+        return self.eps_start
+
+    def act_train(self, state):
+        e = self.getEPS()
 
         self.steps_done += 1
 
@@ -72,6 +70,29 @@ class GridSurvivorRLAgent:
                 return self.policy_net(state).max(1).indices.view(1, 1)
         else:
             return torch.tensor([[np.random.randint(3)]], device=device, dtype=torch.long)
+
+    def reset_to_test(self):
+        try:
+            self.load('model.pth')
+            self.policy_net.eval()
+            self.target_net.eval()
+            print('Model loaded successfully')
+        except:
+            print('Model not found')
+            raise
+
+
+    def act(self, state):
+        # print(state)
+        state, _ = reset_state(state)
+        # state를 frame processor로 처리
+        self.frame_processor.process_frame(state, 0)  # reward는 테스트에서 중요하지    않으므로 0
+        current_state = self.frame_processor.get_state_tensor()
+
+        with torch.no_grad():
+            action = self.policy_net(current_state).max(1).indices.view(1, 1)
+        return action.item()
+
 
     def optimize_model(self):
         # 배치 크기만큼의 메모리가 쌓이지 않았다면 학습하지 않음
@@ -119,7 +140,7 @@ class GridSurvivorRLAgent:
         # 역전파 및 최적화
         self.optimizer.zero_grad() # gradient 초기화
         loss.backward() # 역전파
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 10.0) # 클리핑
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0) # 클리핑
         self.optimizer.step() # 파라미터 업데이트
 
         return loss.item()
@@ -141,7 +162,7 @@ class GridSurvivorRLAgent:
         }, 'model.pth')
 
     def load(self, filename):
-        checkpoint = torch.load(filename)
+        checkpoint = torch.load(filename, weights_only=True)
         self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -152,37 +173,41 @@ def train(episodes):
     history = []
 
     for e in range(episodes + 1):
-        # 환경, EPS, game_steps, 초기 꿀벌 개수 초기화
-        state, hp = reset_state(env.reset()[0])
+        # 환경, game_steps, 초기 꿀벌 개수 초기화
+        state, before_hp = reset_state(env.reset()[0])
         before_bee = np.count_nonzero(state == 0.6)
-        agent.resetEPS()
-        game_steps = 1
 
         # frame processor 초기화, 현재 상태 저장
         agent.frame_processor.reset(state)
         current_state = agent.frame_processor.get_state_tensor()
-
+        rewards = []
         # 기록용 변수 초기화
         episode_reward = 0
-
+        walk = 0
         while True:
             # 에피소드 기반 행동 선택
-            action = agent.act(current_state, e)
+            action = agent.act_train(current_state)
             next_state, reward, terminated, truncated, _ = env.step(action.item())
 
             # String 타입 -> Float 타입
-            next_state, hp = reset_state(next_state)
+            next_state, after_hp = reset_state(next_state)
 
             # 보상 관련 프로세스
             after_bee = np.count_nonzero(next_state == 0.6)
-            reward = calculate_reward(before_bee, after_bee, hp, game_steps)
-            if terminated or truncated: # 종료 시 -10점
-                reward = -10
+            reward = calculate_reward(before_bee, after_bee, before_hp, after_hp)
+
+            if terminated or truncated: # 종료 시 -1.0점
+                reward = -1.0
                 next_state = None
-            game_steps *= 0.9995
+
+            # 클리어시 reward 1.0
+            if after_bee == 0:
+                reward = 1.0
+
             before_bee = after_bee
             episode_reward += reward
-
+            walk += 1
+            before_hp = after_hp
 
             # 현재 상태, reward를 프레임 프로세서에 전달, return-type: [bool, accumulated_reward]
             processed, total_reward = agent.frame_processor.process_frame(next_state, reward)
@@ -202,17 +227,26 @@ def train(episodes):
                 current_state = next_state_tensor
 
             # 타겟 네트워크 업데이트
-            if agent.steps_done % 500 == 0:
+            if agent.steps_done % 100 == 0:
                 agent.update_target_net()
 
             if terminated or truncated:
                 break
-        if e % 100 == 0:
-            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}')
+        if e % 10 == 0:
+            print(f'Episode {e} - Reward: {episode_reward}, bee: {after_bee}, EPS: {agent.getEPS()}, walk: {walk}')
+
+        agent.discountEPS(e)
         history.append(episode_reward)
     agent.save()
     return history
 
 if __name__ == '__main__':
+    import datetime
+    print("시작 시간:", datetime.datetime.now())
     history = train(5000)
     record_history(history)
+    print("종료 시간:", datetime.datetime.now())
+
+    # agent = GridSurvivorRLAgent()
+    # agent.reset_to_test()
+    # knu.evaluate(agent)
