@@ -19,7 +19,7 @@ class GridSurvivorRLAgent:
         self.TAU = 0.005
         self.LR = 1e-4
         self.N_FRAMES = 4
-        self.FRAME_SKIP = 2
+        self.FRAME_SKIP = 1
 
         # Epsilon greedy parameters
         self.eps_start = 1.0
@@ -119,7 +119,7 @@ class GridSurvivorRLAgent:
         # 역전파 및 최적화
         self.optimizer.zero_grad() # gradient 초기화
         loss.backward() # 역전파
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 10.0) # 클리핑
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0) # 클리핑
         self.optimizer.step() # 파라미터 업데이트
 
         return loss.item()
@@ -176,9 +176,11 @@ def train(episodes):
             after_bee = np.count_nonzero(next_state == 0.6)
             reward = calculate_reward(before_bee, after_bee, hp, game_steps)
             if terminated or truncated: # 종료 시 -10점
-                reward = -10
+                reward = -50
                 next_state = None
-            game_steps *= 0.9995
+            if after_bee == 0: # 클리어
+                reward = 100
+            game_steps *= 0.9999
             before_bee = after_bee
             episode_reward += reward
             walk += 1
