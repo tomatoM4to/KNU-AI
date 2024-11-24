@@ -52,7 +52,7 @@ class GridSurvivorRLAgent:
         self.steps_done = 0
 
     def discountEPS(self, episode):
-        speed = 0.1 * (episode / 4000) ** 2
+        speed = 0.1 * (episode / 5000) ** 2
         self.eps_start -= speed * (self.eps_start - self.EPS_END) / 20
         self.eps_start = max(self.eps_start, self.EPS_END)
 
@@ -243,7 +243,7 @@ def train(episodes):
 if __name__ == '__main__':
     import datetime
     print("시작 시간:", datetime.datetime.now())
-    history = train(4000)
+    history = train(5000)
     record_history(history)
     print("종료 시간:", datetime.datetime.now())
 
