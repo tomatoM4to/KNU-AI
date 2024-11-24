@@ -53,11 +53,11 @@ class GridSurvivorRLAgent:
 
     def discountEPS(self, episode):
         # 3000 에피소드까지 선형 감소, 이후 지수 감소
-        if episode <= 3000:
+        if episode <= 1800:
             self.eps_start *= 0.9995
         else:
             self.eps_start *= 0.995
-        return max(self.EPS_END, self.eps_start)
+        self.eps_start = max(self.EPS_END, self.eps_start)
 
     def getEPS(self):
         return self.eps_start
@@ -215,5 +215,5 @@ def train(episodes):
     return history
 
 if __name__ == '__main__':
-    history = train(5000)
+    history = train(3000)
     record_history(history)
