@@ -1,0 +1,10 @@
+Multi frame 버전, 중간에 중단
+
+Episode 2370 - Reward: 36.32265771834838, bee: 48, EPS: 0.05, walk: 768
+Episode 2380 - Reward: 69.30588892596838, bee: 47, EPS: 0.05, walk: 1052
+Episode 2390 - Reward: 89.01736473028959, bee: 46, EPS: 0.05, walk: 1200
+Episode 2400 - Reward: 88.82803965878679, bee: 46, EPS: 0.05, walk: 1200
+Episode 2410 - Reward: -11.837372347691023, bee: 48, EPS: 0.05, walk: 285
+Episode 2420 - Reward: 89.23084779219138, bee: 46, EPS: 0.05, walk: 1200
+Episode 2430 - Reward: 35.15205793150696, bee: 48, EPS: 0.05, walk: 768
+Episode 2440 - Reward: 93.51291136019071, bee: 45, EPS: 0.05, walk: 1200
