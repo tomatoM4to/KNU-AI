@@ -52,17 +52,15 @@ class GridSurvivorRLAgent:
         self.steps_done = 0
 
     def discountEPS(self, episode):
-        # 3000 에피소드까지 선형 감소, 이후 지수 감소
-        if episode <= 1800:
-            self.eps_start *= 0.9995
-        else:
-            self.eps_start *= 0.995
-        self.eps_start = max(self.EPS_END, self.eps_start)
+        speed = 0.1 * (episode / 4000) ** 2
+        self.eps_start -= speed * (self.eps_start - self.EPS_END) / 20
+        self.eps_start = max(self.eps_start, self.EPS_END)
+
 
     def getEPS(self):
         return self.eps_start
 
-    def act(self, state, episode):
+    def act_train(self, state):
         e = self.getEPS()
 
         self.steps_done += 1
@@ -72,6 +70,29 @@ class GridSurvivorRLAgent:
                 return self.policy_net(state).max(1).indices.view(1, 1)
         else:
             return torch.tensor([[np.random.randint(3)]], device=device, dtype=torch.long)
+
+    def reset_to_test(self):
+        try:
+            self.load('model.pth')
+            self.policy_net.eval()
+            self.target_net.eval()
+            print('Model loaded successfully')
+        except:
+            print('Model not found')
+            raise
+
+
+    def act(self, state):
+        # print(state)
+        state, _ = reset_state(state)
+        # state를 frame processor로 처리
+        self.frame_processor.process_frame(state, 0)  # reward는 테스트에서 중요하지    않으므로 0
+        current_state = self.frame_processor.get_state_tensor()
+
+        with torch.no_grad():
+            action = self.policy_net(current_state).max(1).indices.view(1, 1)
+        return action.item()
+
 
     def optimize_model(self):
         # 배치 크기만큼의 메모리가 쌓이지 않았다면 학습하지 않음
@@ -141,7 +162,7 @@ class GridSurvivorRLAgent:
         }, 'model.pth')
 
     def load(self, filename):
-        checkpoint = torch.load(filename)
+        checkpoint = torch.load(filename, weights_only=True)
         self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -166,7 +187,7 @@ def train(episodes):
         walk = 0
         while True:
             # 에피소드 기반 행동 선택
-            action = agent.act(current_state, e)
+            action = agent.act_train(current_state)
             next_state, reward, terminated, truncated, _ = env.step(action.item())
 
             # String 타입 -> Float 타입
@@ -217,5 +238,9 @@ def train(episodes):
     return history
 
 if __name__ == '__main__':
-    history = train(3000)
+    history = train(4500)
     record_history(history)
+
+    # agent = GridSurvivorRLAgent()
+    # agent.reset_to_test()
+    # knu.evaluate(agent)
