@@ -1,3 +1,4 @@
+import knu_rl_env as knu
 from knu_rl_env.road_hog import make_road_hog, RoadHogAgent, evaluate
 from dqn import DQN, ReplayMemory, Transition
 import numpy as np
@@ -18,7 +19,7 @@ EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 
-env: Dict[str, Any] = make_road_hog(show_screen=False)
+env: Dict[str, Any] = make_road_hog(show_screen=False).reset()[0]
 observation: list = env["observation"]
 goal_spot: list = env["goal_spot"]
 is_on_load: bool = env["is_on_load"]
@@ -38,10 +39,11 @@ memory = ReplayMemory(10000)
 
 
 class RoadHogRLAgent(RoadHogAgent):
+    toggle = False
+
     def act(self, state):
-        print(state)
-        time.sleep(1)
-        return np.random.randint(9)
+        self.toggle = not self.toggle
+        return 1 if self.toggle else 3
 
     def train_act(self, state):
         sample = np.random.random()
@@ -143,6 +145,8 @@ def train():
 
 
 if __name__ == "__main__":
-    # agent = RoadHogRLAgent()
-    # evaluate(agent)
-    train()
+    agent = RoadHogRLAgent()
+    evaluate(agent)
+    # train()
+    # knu.road_hog.run_manual()
+    pass
