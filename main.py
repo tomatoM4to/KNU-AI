@@ -220,14 +220,14 @@ def train(agent: RoadHogRLAgent):
             agent.epsilon.update_epsilon(avg_reward, success_rate)
 
         rewards_history.append(episode_reward)
-        if episode % 1 == 0:
+        if episode % 10 == 0:
             print(
                 f"episode: {episode} reward: {episode_reward} epsilon: {agent.epsilon.epsilon}"
             )
             print(f"agent x: {state[0]} agent y: {state[1]}")
             print(selected_action)
-            selected_action.clear()
             print()
+        selected_action.clear()
 
 
 if __name__ == "__main__":

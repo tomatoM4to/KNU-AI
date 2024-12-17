@@ -29,22 +29,17 @@ class ReplayMemory(object):
 
 
 class DQN(nn.Module):
+
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.feature_layer = nn.Sequential(
-            nn.Linear(n_observations, 256), nn.ReLU(), nn.Linear(256, 128), nn.ReLU()
-        )
-        # 가치 함수 스트림
-        self.value_stream = nn.Linear(128, 1)
-        # 어드밴티지 스트림
-        self.advantage_stream = nn.Linear(128, n_actions)
+        self.layer1 = nn.Linear(n_observations, 128)
+        self.layer2 = nn.Linear(128, 128)
+        self.layer3 = nn.Linear(128, n_actions)
 
     def forward(self, x):
-        features = self.feature_layer(x)
-        values = self.value_stream(features)
-        advantages = self.advantage_stream(features)
-        # Q(s,a) = V(s) + A(s,a) - mean(A(s,a))
-        return values + advantages - advantages.mean(dim=1, keepdim=True)
+        x = F.relu(self.layer1(x))
+        x = F.relu(self.layer2(x))
+        return self.layer3(x)
 
 
 def parse_state(state: list, target: list):
@@ -67,6 +62,6 @@ def calculate_reward(pre_state: list, state: list) -> Tuple[float, bool]:
     x1_prev, y1_prev, sin1_prev, _, _, _ = pre_state
 
     if abs(x1) < abs(x1_prev):
-        return 0.1, False
+        return 0.5, False
 
     return 0.0, False
