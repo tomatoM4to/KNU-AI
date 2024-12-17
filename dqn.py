@@ -28,17 +28,34 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-class DQN(nn.Module):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class DeeperDQN(nn.Module):
     def __init__(self, n_observations, n_actions):
-        super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(128, 128)
-        self.layer3 = nn.Linear(128, n_actions)
+        super(DeeperDQN, self).__init__()
+        # 더 깊은 네트워크 구성
+        self.layer1 = nn.Linear(n_observations, 256)
+        self.layer2 = nn.Linear(256, 256)
+        self.layer3 = nn.Linear(256, 128)
+        self.layer4 = nn.Linear(128, 128)
+        self.layer5 = nn.Linear(128, 64)
+        self.layer6 = nn.Linear(64, n_actions)
+
+        # 드롭아웃 설정
+        self.dropout = nn.Dropout(p=0.2)
 
     def forward(self, x):
         x = F.relu(self.layer1(x))
+        x = self.dropout(x)
         x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        x = self.dropout(x)
+        x = F.relu(self.layer3(x))
+        x = F.relu(self.layer4(x))
+        x = F.relu(self.layer5(x))
+        return self.layer6(x)
 
 
 def parse_state(state: list, target: list):

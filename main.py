@@ -161,6 +161,7 @@ def train(agent: RoadHogRLAgent):
             observation, done = skip_step(action)
             state = parse_state(observation["observation"], observation["goal_spot"])
             reward, goal = calculate_reward(pre_state, state)
+            pre_state = state
 
             # 보상 관련 처리
             if done:
