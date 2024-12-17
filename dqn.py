@@ -52,6 +52,7 @@ def calculate_reward(pre_state: list, state: list) -> Tuple[float, bool]:
     x1, y1, sin1, x2, y2, sin2 = state
     boundaryY = [-10, 10]
     boundaryX = -245
+    targetX = -50
 
     # 경계를 벗어나면 -1.0 보상
     if y1 < boundaryY[0] or y1 > boundaryY[1]:
@@ -61,7 +62,8 @@ def calculate_reward(pre_state: list, state: list) -> Tuple[float, bool]:
 
     x1_prev, y1_prev, sin1_prev, _, _, _ = pre_state
 
-    if abs(x1) < abs(x1_prev):
+    # -50에 더 가까워졌는지 확인
+    if abs(x1 - targetX) < abs(x1_prev - targetX) and abs(x1 - targetX) > 0.5:
         return 0.5, False
 
     return 0.0, False

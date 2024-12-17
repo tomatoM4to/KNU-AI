@@ -6,8 +6,10 @@ import torch.optim as optim
 import torch.nn as nn
 from typing import Any, Dict
 import matplotlib.pyplot as plt
-from eps import AdaptiveEpsilonGreedy
-from collections import deque
+import math
+
+# from eps import AdaptiveEpsilonGreedy
+# from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
@@ -15,6 +17,10 @@ BATCH_SIZE = 128
 GAMMA = 0.99
 TAU = 0.005
 LR = 1e-4
+
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 1000
 
 steps_done = 0
 
@@ -45,8 +51,6 @@ class RoadHogRLAgent(RoadHogAgent):
         self.idx = -1
         self.loc = np.array([0, 0, 0])
 
-        self.epsilon = AdaptiveEpsilonGreedy()
-
     def reset(self):
         self.idx = -1
 
@@ -62,7 +66,9 @@ class RoadHogRLAgent(RoadHogAgent):
 
         sample = np.random.random()
 
-        eps_threshold = self.epsilon.epsilon
+        eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(
+            -1.0 * steps_done / EPS_DECAY
+        )
 
         steps_done += 1
         if sample > eps_threshold:
@@ -114,6 +120,29 @@ class RoadHogRLAgent(RoadHogAgent):
         torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
         optimizer.step()
 
+    def save(self, file_path="policy_net.pth"):
+        """정책 네트워크와 타겟 네트워크 저장"""
+        torch.save(
+            {
+                "policy_net_state_dict": policy_net.state_dict(),
+                "target_net_state_dict": target_net.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "steps_done": steps_done,
+            },
+            file_path,
+        )
+        print(f"Model saved to {file_path}")
+
+    def load(self, file_path="policy_net.pth"):
+        """정책 네트워크와 타겟 네트워크 불러오기"""
+        global steps_done
+        checkpoint = torch.load(file_path, map_location=device)
+        policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
+        target_net.load_state_dict(checkpoint["target_net_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        steps_done = checkpoint.get("steps_done", 0)
+        print(f"Model loaded from {file_path}")
+
 
 selected_action = []
 
@@ -124,7 +153,7 @@ def skip_step(
     done = False
     a = action_space[action.item()]
     selected_action.append(a)
-    for _ in range(4):
+    for _ in range(2):
         observation, reward, terminated, truncated, _ = ENV.step(a)
         done = terminated or truncated
         if done:
@@ -148,9 +177,6 @@ def train(agent: RoadHogRLAgent):
     action: torch.Tensor
 
     num_episodes = 600
-    window_size = 50
-    recent_rewards = deque([], maxlen=window_size)
-    recent_successes = deque([], maxlen=window_size)
 
     for episode in range(num_episodes):
         agent.reset()
@@ -173,7 +199,7 @@ def train(agent: RoadHogRLAgent):
 
             done = done1 or done2
 
-            if 0.5 <= state[0] <= -0.5:
+            if -60 <= state[0] <= -50:
                 done = True
                 reward = 50.0
 
@@ -209,21 +235,9 @@ def train(agent: RoadHogRLAgent):
             if done:
                 break
 
-        # 에피소드 결과 기록
-        recent_rewards.append(episode_reward)
-        recent_successes.append(1.0 if goal else 0.0)
-
-        # 일정 기간(윈도우) 평균으로 epsilon 업데이트
-        if len(recent_rewards) == window_size:
-            avg_reward = np.mean(recent_rewards)
-            success_rate = np.mean(recent_successes)
-            agent.epsilon.update_epsilon(avg_reward, success_rate)
-
         rewards_history.append(episode_reward)
         if episode % 10 == 0:
-            print(
-                f"episode: {episode} reward: {episode_reward} epsilon: {agent.epsilon.epsilon}"
-            )
+            print(f"episode: {episode} reward: {episode_reward}")
             print(f"agent x: {state[0]} agent y: {state[1]}")
             print(selected_action)
             print()
@@ -232,8 +246,9 @@ def train(agent: RoadHogRLAgent):
 
 if __name__ == "__main__":
     agent = RoadHogRLAgent()
-    # evaluate(agent)
     train(agent)
+    agent.save()
+    # evaluate(agent)
     # run_manual()
 
     print("Complete")
