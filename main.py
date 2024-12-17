@@ -1,5 +1,4 @@
-import knu_rl_env as knu
-from knu_rl_env.road_hog import make_road_hog, RoadHogAgent, evaluate
+from knu_rl_env.road_hog import make_road_hog, RoadHogAgent, evaluate, run_manual
 from dqn import DQN, ReplayMemory, Transition, parse_state, calculate_reward
 import numpy as np
 import torch
@@ -116,12 +115,16 @@ class RoadHogRLAgent(RoadHogAgent):
         optimizer.step()
 
 
+selected_action = []
+
+
 def skip_step(
     action: torch.Tensor,
 ):
     done = False
     a = action_space[action.item()]
-    for _ in range(3):
+    selected_action.append(a)
+    for _ in range(4):
         observation, reward, terminated, truncated, _ = ENV.step(a)
         done = terminated or truncated
         if done:
@@ -163,20 +166,16 @@ def train(agent: RoadHogRLAgent):
         agent.env_reset()
         while 1:
             action = agent.train_act(state_t)
-            observation, done = skip_step(action)
+            observation, done1 = skip_step(action)
             state = parse_state(observation["observation"], observation["goal_spot"])
-            reward, goal = calculate_reward(pre_state, state)
+            reward, done2 = calculate_reward(pre_state, state)
             pre_state = state
 
-            # 보상 관련 처리
-            if done:
-                reward = -1.0
-            elif not observation["is_on_load"]:
-                reward = -1.0
-                done = True
+            done = done1 or done2
 
-            if goal:
+            if 0.5 <= state[0] <= -0.5:
                 done = True
+                reward = 50.0
 
             episode_reward += reward
             reward_t = torch.tensor([reward], device=device)
@@ -221,18 +220,22 @@ def train(agent: RoadHogRLAgent):
             agent.epsilon.update_epsilon(avg_reward, success_rate)
 
         rewards_history.append(episode_reward)
-        if episode % 10 == 0:
+        if episode % 1 == 0:
             print(
                 f"episode: {episode} reward: {episode_reward} epsilon: {agent.epsilon.epsilon}"
             )
-            print(f"agent x: {state[0]} goal x: {state[3]} memory size: {len(memory)}")
+            print(f"agent x: {state[0]} agent y: {state[1]}")
+            print(selected_action)
+            selected_action.clear()
+            print()
 
 
 if __name__ == "__main__":
     agent = RoadHogRLAgent()
     # evaluate(agent)
     train(agent)
-    # knu.road_hog.run_manual()
+    # run_manual()
+
     print("Complete")
     plt.plot(range(len(rewards_history)), rewards_history, color="blue")
     plt.xlabel("Episode")

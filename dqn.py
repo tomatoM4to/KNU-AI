@@ -54,18 +54,19 @@ def parse_state(state: list, target: list):
 
 
 def calculate_reward(pre_state: list, state: list) -> Tuple[float, bool]:
-    x1_prev, y1_prev, sin1_prev, _, _, _ = pre_state
     x1, y1, sin1, x2, y2, sin2 = state
+    boundaryY = [-10, 10]
+    boundaryX = -245
 
-    # 보상 초기화
-    reward = 0.0
-    # x1이 x2에 1만큼 가까워지면 0.1 보상 추가
-    if abs(x2 - x1) < abs(x2 - x1_prev):
-        reward += 0.1
+    # 경계를 벗어나면 -1.0 보상
+    if y1 < boundaryY[0] or y1 > boundaryY[1]:
+        return -1.0, True
+    if x1 < boundaryX:
+        return -1.0, True
 
-    # x1이 x2에 10 이내로 도달했을 때 종료 조건
-    if abs(x2 - x1) <= 10:
-        reward += 1.0
-        return reward, True
+    x1_prev, y1_prev, sin1_prev, _, _, _ = pre_state
 
-    return reward, False
+    if abs(x1) < abs(x1_prev):
+        return 0.1, False
+
+    return 0.0, False
