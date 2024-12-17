@@ -33,29 +33,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class DeeperDQN(nn.Module):
+class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
-        super(DeeperDQN, self).__init__()
-        # 더 깊은 네트워크 구성
+        super(DQN, self).__init__()
         self.layer1 = nn.Linear(n_observations, 256)
-        self.layer2 = nn.Linear(256, 256)
-        self.layer3 = nn.Linear(256, 128)
-        self.layer4 = nn.Linear(128, 128)
-        self.layer5 = nn.Linear(128, 64)
-        self.layer6 = nn.Linear(64, n_actions)
-
-        # 드롭아웃 설정
-        self.dropout = nn.Dropout(p=0.2)
+        self.layer2 = nn.Linear(256, 128)
+        self.layer3 = nn.Linear(128, n_actions)
 
     def forward(self, x):
         x = F.relu(self.layer1(x))
-        x = self.dropout(x)
         x = F.relu(self.layer2(x))
-        x = self.dropout(x)
-        x = F.relu(self.layer3(x))
-        x = F.relu(self.layer4(x))
-        x = F.relu(self.layer5(x))
-        return self.layer6(x)
+        return self.layer3(x)
 
 
 def parse_state(state: list, target: list):
@@ -70,13 +58,12 @@ def calculate_reward(pre_state: list, state: list) -> Tuple[float, bool]:
 
     # 보상 초기화
     reward = 0.0
-
     # x1이 x2에 1만큼 가까워지면 0.1 보상 추가
-    if abs(x1 - x2) < abs(x1_prev - x2):
+    if abs(x2 - x1) < abs(x2 - x1_prev):
         reward += 0.1
 
     # x1이 x2에 10 이내로 도달했을 때 종료 조건
-    if abs(x1 - x2) <= 10:
+    if abs(x2 - x1) <= 10:
         reward += 1.0
         return reward, True
 

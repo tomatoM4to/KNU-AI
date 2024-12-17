@@ -8,14 +8,13 @@ import torch.nn as nn
 from typing import Any, Dict
 import math
 import matplotlib.pyplot as plt
+from eps import AdaptiveEpsilonGreedy
+from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.99
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 
@@ -48,6 +47,8 @@ class RoadHogRLAgent(RoadHogAgent):
         self.idx = -1
         self.loc = np.array([0, 0, 0])
 
+        self.epsilon = AdaptiveEpsilonGreedy()
+
     def reset(self):
         self.idx = -1
 
@@ -63,9 +64,8 @@ class RoadHogRLAgent(RoadHogAgent):
 
         sample = np.random.random()
 
-        eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(
-            -1.0 * steps_done / EPS_DECAY
-        )
+        eps_threshold = self.epsilon.epsilon
+
         steps_done += 1
         if sample > eps_threshold:
             with torch.no_grad():
@@ -145,7 +145,12 @@ def train(agent: RoadHogRLAgent):
     reward_t: torch.Tensor
     action: torch.Tensor
 
-    for episode in range(600):
+    num_episodes = 600
+    window_size = 50
+    recent_rewards = deque([], maxlen=window_size)
+    recent_successes = deque([], maxlen=window_size)
+
+    for episode in range(num_episodes):
         agent.reset()
         observation, _ = ENV.reset()
         pre_state = parse_state(observation["observation"], observation["goal_spot"])
@@ -153,7 +158,8 @@ def train(agent: RoadHogRLAgent):
             0
         )
 
-        episode_reward = 0
+        episode_reward = 0.0
+        goal = False
 
         agent.env_reset()
         while 1:
@@ -205,9 +211,21 @@ def train(agent: RoadHogRLAgent):
             if done:
                 break
 
+        # 에피소드 결과 기록
+        recent_rewards.append(episode_reward)
+        recent_successes.append(1.0 if goal else 0.0)
+
+        # 일정 기간(윈도우) 평균으로 epsilon 업데이트
+        if len(recent_rewards) == window_size:
+            avg_reward = np.mean(recent_rewards)
+            success_rate = np.mean(recent_successes)
+            agent.epsilon.update_epsilon(avg_reward, success_rate)
+
         rewards_history.append(episode_reward)
-        if episode % 50 == 0:
-            print(f"episode: {episode} reward: {episode_reward}")
+        if episode % 10 == 0:
+            print(
+                f"episode: {episode} reward: {episode_reward} epsilon: {agent.epsilon.epsilon}"
+            )
             print(f"agent x: {state[0]} goal x: {state[3]}")
 
 
