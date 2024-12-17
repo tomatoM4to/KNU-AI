@@ -47,9 +47,10 @@ memory = ReplayMemory(50000)
 class RoadHogRLAgent(RoadHogAgent):
     def __init__(self):
         super().__init__()
-        self.init_action_space = np.array([7, 7, 7, 3, 3, 7, 7, 7, 3, 3, 7, 7, 7])
+        self.init_action_space = [7, 7, 7, 3, 3, 7, 7, 7, 3, 3, 7, 7, 7]
         self.idx = -1
-        self.loc = np.array([0, 0, 0])
+        self.action_box = []
+        self.is_finder = False
 
     def reset(self):
         self.idx = -1
@@ -59,7 +60,18 @@ class RoadHogRLAgent(RoadHogAgent):
             ENV.step(i)
 
     def act(self, state):
-        return 4
+        if self.init_action_space:
+            return self.init_action_space.pop(0)
+
+        if self.action_box:
+            a = self.action_box.pop(0)
+            return action_space[a]
+        state = parse_state(state["observation"], state["goal_spot"])
+        state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        with torch.no_grad():
+            action = policy_net(state).max(1).indices.view(1, 1)
+        self.action_box.append(action.item())
+        return action_space[action.item()]
 
     def train_act(self, state: torch.Tensor) -> torch.Tensor:
         global steps_done
@@ -144,15 +156,11 @@ class RoadHogRLAgent(RoadHogAgent):
         print(f"Model loaded from {file_path}")
 
 
-selected_action = []
-
-
 def skip_step(
     action: torch.Tensor,
 ):
     done = False
     a = action_space[action.item()]
-    selected_action.append(a)
     for _ in range(2):
         observation, reward, terminated, truncated, _ = ENV.step(a)
         done = terminated or truncated
@@ -236,24 +244,23 @@ def train(agent: RoadHogRLAgent):
                 break
 
         rewards_history.append(episode_reward)
-        if episode % 10 == 0:
+        if episode % 100 == 0:
             print(f"episode: {episode} reward: {episode_reward}")
             print(f"agent x: {state[0]} agent y: {state[1]}")
-            print(selected_action)
             print()
-        selected_action.clear()
 
 
 if __name__ == "__main__":
     agent = RoadHogRLAgent()
-    train(agent)
-    agent.save()
-    # evaluate(agent)
+    # train(agent)
+    # agent.save()
+    agent.load()
+    evaluate(agent)
     # run_manual()
 
-    print("Complete")
-    plt.plot(range(len(rewards_history)), rewards_history, color="blue")
-    plt.xlabel("Episode")
-    plt.ylabel("Reward")
-    plt.title("Rewards per Episode")
-    plt.savefig("dqn-reward-history.png")
+    # print("Complete")
+    # plt.plot(range(len(rewards_history)), rewards_history, color="blue")
+    # plt.xlabel("Episode")
+    # plt.ylabel("Reward")
+    # plt.title("Rewards per Episode")
+    # plt.savefig("dqn-reward-history.png")
