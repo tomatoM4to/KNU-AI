@@ -225,7 +225,7 @@ def train(agent: RoadHogRLAgent):
             print(
                 f"episode: {episode} reward: {episode_reward} epsilon: {agent.epsilon.epsilon}"
             )
-            print(f"agent x: {state[0]} goal x: {state[3]}")
+            print(f"agent x: {state[0]} goal x: {state[3]} memory size: {len(memory)}")
 
 
 if __name__ == "__main__":

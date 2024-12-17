@@ -8,7 +8,7 @@ class AdaptiveEpsilonGreedy:
         self,
         eps_max=1.0,
         eps_min=0.05,
-        reward_improve_threshold=0.01,
+        reward_improve_threshold=0.05,
         success_threshold=0.8,
         smoothing_factor=0.1,
         stable_tolerance=0.01,
@@ -34,8 +34,8 @@ class AdaptiveEpsilonGreedy:
         self.reward_improve_threshold = reward_improve_threshold
         self.success_threshold = success_threshold
 
-        self.increase_factor = 1.1
-        self.decrease_factor = 0.9
+        self.increase_factor = 1.05
+        self.decrease_factor = 0.95
 
         self.stable_tolerance = stable_tolerance
         self.patience = patience
