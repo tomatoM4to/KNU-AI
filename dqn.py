@@ -28,22 +28,23 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
 class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 256)
-        self.layer2 = nn.Linear(256, 128)
-        self.layer3 = nn.Linear(128, n_actions)
+        self.feature_layer = nn.Sequential(
+            nn.Linear(n_observations, 256), nn.ReLU(), nn.Linear(256, 128), nn.ReLU()
+        )
+        # 가치 함수 스트림
+        self.value_stream = nn.Linear(128, 1)
+        # 어드밴티지 스트림
+        self.advantage_stream = nn.Linear(128, n_actions)
 
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        features = self.feature_layer(x)
+        values = self.value_stream(features)
+        advantages = self.advantage_stream(features)
+        # Q(s,a) = V(s) + A(s,a) - mean(A(s,a))
+        return values + advantages - advantages.mean(dim=1, keepdim=True)
 
 
 def parse_state(state: list, target: list):

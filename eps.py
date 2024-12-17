@@ -8,7 +8,7 @@ class AdaptiveEpsilonGreedy:
         self,
         eps_max=1.0,
         eps_min=0.05,
-        reward_improve_threshold=0.1,
+        reward_improve_threshold=0.01,
         success_threshold=0.8,
         smoothing_factor=0.1,
         stable_tolerance=0.01,
@@ -83,5 +83,8 @@ class AdaptiveEpsilonGreedy:
         else:
             # 개선도 악화도 없는 정체 구간
             if self.stable_count >= self.patience:
-                # 여기서는 epsilon을 그대로 유지하는 방식을 택함
-                pass
+                # 정체가 오래 지속되면 탐색률을 약간 조정
+                # 여기서는 임시로 epsilon을 소폭 감소시켜서 새로운 시도 유도
+                new_epsilon = self.epsilon * 0.95
+                self.epsilon = max(self.eps_min, new_epsilon)
+                self.stable_count = 0  # stable_count 초기화

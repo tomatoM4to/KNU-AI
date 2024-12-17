@@ -6,14 +6,13 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 from typing import Any, Dict
-import math
 import matplotlib.pyplot as plt
 from eps import AdaptiveEpsilonGreedy
 from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 GAMMA = 0.99
 TAU = 0.005
 LR = 1e-4
@@ -37,7 +36,7 @@ target_net = DQN(n_state, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(10000)
+memory = ReplayMemory(50000)
 
 
 class RoadHogRLAgent(RoadHogAgent):
