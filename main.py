@@ -13,7 +13,7 @@ from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 GAMMA = 0.99
 TAU = 0.005
 LR = 1e-4
@@ -24,7 +24,7 @@ EPS_DECAY = 1000
 
 steps_done = 0
 
-ENV = make_road_hog(show_screen=True)
+ENV = make_road_hog(show_screen=False)
 observation: Dict[str, Any] = ENV.reset()[0]
 is_on_load: bool = observation["is_on_load"]
 is_crashed: bool = observation["is_crashed"]
@@ -33,15 +33,18 @@ o_time: int = observation["time"]
 # 환경 초기화
 state: list = parse_state(observation["observation"], observation["goal_spot"])
 n_state: int = len(state)
-action_space = np.array([3, 4])  # 왼쪽, 아무행동 안하기, 오른쪽
+
+action_space = np.array([3, 4, 5])
+parking_action_space = np.array([3, 4])  # 왼쪽, 아무행동 안하기, 오른쪽
 n_actions: int = len(action_space)
+parking_n_actions: int = len(parking_action_space)
 
 # 입구 찾기 네트워크
-# policy_net = DQN(n_state, n_actions).to(device)
+policy_net = DQN(n_state, n_actions).to(device)
 
 # 주차 네트워크
-parking_policy_net = DQN(n_state, n_actions).to(device)
-parking_target_net = DQN(n_state, n_actions).to(device)
+parking_policy_net = DQN(n_state, parking_n_actions).to(device)
+parking_target_net = DQN(n_state, parking_n_actions).to(device)
 parking_target_net.load_state_dict(parking_policy_net.state_dict())
 
 parking_optimizer = optim.AdamW(parking_policy_net.parameters(), lr=LR, amsgrad=True)
@@ -55,7 +58,7 @@ class RoadHogRLAgent(RoadHogAgent):
         self.init_action_space = deque([7, 7, 7, 3, 3, 7, 7, 7, 3, 3, 7, 7, 7])
         self.idx = -1
         self.action_box = []
-        self.is_finder = False
+        self.is_parking = False
         self.X = 0
         self.Y = 0
 
@@ -64,11 +67,21 @@ class RoadHogRLAgent(RoadHogAgent):
         self.init_parking_action_space = deque([7] * 3 + [3] * 22 + [7] * 15 + [4] * 50)
 
     def act(self, state):
+        if state["observation"][0][0] >= -60:
+            self.is_parking = True
+
+        if self.is_parking:
+            state = parse_state(state["observation"], state["goal_spot"])
+            state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+            with torch.no_grad():
+                action = parking_policy_net(state).max(1).indices.view(1, 1)
+                return parking_action_space[action.item()]
+
         if self.init_action_space:
             return self.init_action_space.popleft()
 
         if self.action_box:
-            a = self.action_box.pop_lt()
+            a = self.action_box.pop(0)
             return action_space[a]
         state = parse_state(state["observation"], state["goal_spot"])
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
@@ -158,10 +171,10 @@ class RoadHogRLAgent(RoadHogAgent):
         )
         print(f"Model saved to {file_path}")
 
-    # def load_policy_net(self, file_path="policy_net.pth"):
-    #     checkpoint = torch.load(file_path, map_location=device)
-    #     policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
-    #     print(f"Model loaded from {file_path}")
+    def load_policy_net(self, file_path="policy_net.pth"):
+        checkpoint = torch.load(file_path, map_location=device)
+        policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
+        print(f"Model loaded from {file_path}")
 
     def load_parking_net(self, file_path="parking_policy_net.pth"):
         checkpoint = torch.load(file_path, map_location=device, weights_only=True)
@@ -242,24 +255,9 @@ def train(agent: RoadHogRLAgent):
 
             done = done1 or done2
 
-            # 무한히 회전하는지 체크
-            if len(action_record) > 150:
-                done = True
-
             # 클리어 확인
-            if done:
-                x, y, sin = state[0], state[1], state[2]
-                target_x, target_y, target_sin = state[3], state[4], state[5]
-
-                # 거리와 sin 차이 계산
-                distance_to_target = ((x - target_x) ** 2 + (y - target_y) ** 2) ** 0.5
-                sin_difference = abs(sin - target_sin)
-                if (
-                    distance_to_target <= distance_threshold
-                    and sin_difference < sin_threshold
-                ):
-                    goal = True
-                    reward = 50.0
+            if done1:
+                reward = 50.0
 
             episode_reward += reward
             reward_t = torch.tensor([reward], device=device)
@@ -294,7 +292,7 @@ def train(agent: RoadHogRLAgent):
                 break
 
         rewards_history.append(episode_reward)
-        if episode % 5 == 0:
+        if episode % 10 == 0:
             print(f"episode: {episode} reward: {episode_reward}")
             print(f"agent x: {state[0]} agent y: {state[1]}")
             print(f"boundary x1: {agent.X - 3} boundary y2: {agent.Y + 3}")
@@ -318,10 +316,12 @@ def train(agent: RoadHogRLAgent):
 if __name__ == "__main__":
     agent = RoadHogRLAgent()
     # agent.load_policy_net()
-    train(agent)
-    agent.save()
+    # train(agent)
+    # agent.save()
 
-    # evaluate(agent)
+    agent.load_policy_net()
+    agent.load_parking_net()
+    evaluate(agent)
 
     # run_manual()
 
