@@ -168,15 +168,17 @@ class RoadHogRLAgent(RoadHogAgent):
         print(f"Model loaded from {file_path}")
 
 
-action_history = []
+action_record = []
 
 
 def skip_step(
     action: int,
+    is_recording: bool = False,
 ):
     done = False
-    action_space.append(action)
-    for _ in range(2):
+    if is_recording:
+        action_record.append(action)
+    for _ in range(1):
         observation, reward, terminated, truncated, _ = ENV.step(action)
         done = terminated or truncated
         if done:
@@ -227,7 +229,7 @@ def train(agent: RoadHogRLAgent):
                 continue
 
             action = agent.train_act(state_t)
-            observation, done1 = skip_step(action.item())
+            observation, done1 = skip_step(action.item(), is_recording=True)
             state = parse_state(observation["observation"], observation["goal_spot"])
             reward, done2 = calculate_reward(pre_state, state, (agent.X, agent.Y))
             pre_state = state
@@ -282,12 +284,19 @@ def train(agent: RoadHogRLAgent):
                 break
 
         rewards_history.append(episode_reward)
-        if episode % 10 == 0:
+        if episode % 5 == 0:
             print(f"episode: {episode} reward: {episode_reward}")
             print(f"agent x: {state[0]} agent y: {state[1]}")
-            print(action_history)
+            print(f"boundary x1: {agent.X - 3} boundary y2: {agent.Y + 3}")
+            print(f"boundary x2: {state[3] + 3} boundary y1: {state[4] - 3}")
+            print(f"target x: {state[3]} target y: {state[4]}")
+            eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(
+                -1.0 * steps_done / EPS_DECAY
+            )
+            print(f"eps_threshold: {eps_threshold}")
+            print(action_record)
             print()
-        action_history.clear()
+        action_record.clear()
 
 
 if __name__ == "__main__":
