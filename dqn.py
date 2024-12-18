@@ -48,22 +48,39 @@ def parse_state(state: list, target: list):
     )
 
 
-def calculate_reward(pre_state: list, state: list) -> Tuple[float, bool]:
-    x1, y1, sin1, x2, y2, sin2 = state
-    boundaryY = [-10, 10]
-    boundaryX = -245
-    targetX = -50
+def calculate_reward(
+    pre_state: list, state: list, initialAgentLoc: Tuple
+) -> Tuple[float, bool]:
+    pre_x, pre_y, pre_sin = pre_state[0], pre_state[1], pre_state[2]
+    x, y, sin = state[0], state[1], state[2]
+    target_x, target_y, target_sin = state[3], state[4], state[5]
 
-    # 경계를 벗어나면 -1.0 보상
-    if y1 < boundaryY[0] or y1 > boundaryY[1]:
+    # 초기 위치 추출
+    initial_x, initial_y = initialAgentLoc
+    boundaryX1 = initial_x - 1  # 초기 위치 기준 x 경계
+    boundaryX2 = target_x + 3  # 목표 위치 기준 x 경계
+    boundaryY1 = target_y - 3  # 목표 위치 기준 y 경계
+    boundaryY2 = initial_y + 2  # 초기 위치 기준 y 경계
+
+    # 이전과 현재의 목표와의 거리 계산
+    pre_distance_to_target = ((pre_x - target_x) ** 2 + (pre_y - target_y) ** 2) ** 0.5
+    current_distance_to_target = ((x - target_x) ** 2 + (y - target_y) ** 2) ** 0.5
+
+    # 목표 기울기(sin) 차이 계산
+    sin_difference = abs(sin - target_sin)
+
+    # 보상 정의
+    reward = 0.0
+
+    # 경계값 벗어나는 경우
+    if x < boundaryX1 or x > boundaryX2 or y < boundaryY1 or y > boundaryY2:
         return -1.0, True
-    if x1 < boundaryX:
-        return -1.0, True
 
-    x1_prev, y1_prev, sin1_prev, _, _, _ = pre_state
+    # 목표에 가까워지면 보상
+    if current_distance_to_target < pre_distance_to_target:
+        reward += 0.5
 
-    # -50에 더 가까워졌는지 확인
-    if abs(x1 - targetX) < abs(x1_prev - targetX) and abs(x1 - targetX) > 0.5:
-        return 0.5, False
+    # 기울기 차이가 작을수록 보상 증가
+    reward += max(1.0 - sin_difference, 0)
 
-    return 0.0, False
+    return reward, False

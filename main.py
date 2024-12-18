@@ -36,12 +36,16 @@ n_state: int = len(state)
 action_space = np.array([3, 4, 5])
 n_actions: int = len(action_space)
 
+# 입구 찾기 네트워크
 policy_net = DQN(n_state, n_actions).to(device)
-target_net = DQN(n_state, n_actions).to(device)
-target_net.load_state_dict(policy_net.state_dict())
 
-optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(50000)
+# 주차 네트워크
+parking_policy_net = DQN(n_state, n_actions).to(device)
+parking_target_net = DQN(n_state, n_actions).to(device)
+parking_target_net.load_state_dict(parking_policy_net.state_dict())
+
+parking_optimizer = optim.AdamW(parking_policy_net.parameters(), lr=LR, amsgrad=True)
+parking_memory = ReplayMemory(50000)
 
 
 class RoadHogRLAgent(RoadHogAgent):
@@ -51,13 +55,12 @@ class RoadHogRLAgent(RoadHogAgent):
         self.idx = -1
         self.action_box = []
         self.is_finder = False
+        self.X = 0
+        self.Y = 0
 
     def reset(self):
         self.idx = -1
-
-    def env_reset(self):
-        for i in self.init_action_space:
-            ENV.step(i)
+        self.init_action_space = [7, 7, 7, 3, 3, 7, 7, 7, 3, 3, 7, 7, 7]
 
     def act(self, state):
         if self.init_action_space:
@@ -71,6 +74,18 @@ class RoadHogRLAgent(RoadHogAgent):
         with torch.no_grad():
             action = policy_net(state).max(1).indices.view(1, 1)
         self.action_box.append(action.item())
+
+        return action_space[action.item()]
+
+    def policy_net_act(self, state):
+        if self.init_action_space:
+            return self.init_action_space.pop(0)
+
+        state = parse_state(state["observation"], state["goal_spot"])
+        state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        with torch.no_grad():
+            action = policy_net(state).max(1).indices.view(1, 1)
+
         return action_space[action.item()]
 
     def train_act(self, state: torch.Tensor) -> torch.Tensor:
@@ -85,7 +100,7 @@ class RoadHogRLAgent(RoadHogAgent):
         steps_done += 1
         if sample > eps_threshold:
             with torch.no_grad():
-                return policy_net(state).max(1).indices.view(1, 1)
+                return parking_policy_net(state).max(1).indices.view(1, 1)
         else:
             return torch.tensor(
                 [[np.random.randint(3)]], device=device, dtype=torch.long
@@ -93,9 +108,9 @@ class RoadHogRLAgent(RoadHogAgent):
 
     def optimize_model(self):
 
-        if len(memory) < BATCH_SIZE:
+        if len(parking_memory) < BATCH_SIZE:
             return
-        transitions = memory.sample(BATCH_SIZE)
+        transitions = parking_memory.sample(BATCH_SIZE)
 
         batch = Transition(*zip(*transitions))
 
@@ -112,13 +127,13 @@ class RoadHogRLAgent(RoadHogAgent):
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
 
-        state_action_values = policy_net(state_batch).gather(1, action_batch)
+        state_action_values = parking_policy_net(state_batch).gather(1, action_batch)
 
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
 
         with torch.no_grad():
             next_state_values[non_final_mask] = (
-                target_net(non_final_next_states).max(1).values
+                parking_target_net(non_final_next_states).max(1).values
             )
 
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch
@@ -126,43 +141,39 @@ class RoadHogRLAgent(RoadHogAgent):
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
-        optimizer.zero_grad()
+        parking_optimizer.zero_grad()
         loss.backward()
 
-        torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-        optimizer.step()
+        torch.nn.utils.clip_grad_value_(parking_policy_net.parameters(), 100)
+        parking_optimizer.step()
 
-    def save(self, file_path="policy_net.pth"):
-        """정책 네트워크와 타겟 네트워크 저장"""
+    def save(self, file_path="parking_policy_net.pth"):
         torch.save(
             {
-                "policy_net_state_dict": policy_net.state_dict(),
-                "target_net_state_dict": target_net.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
+                "parking_policy_net_state_dict": parking_policy_net.state_dict(),
                 "steps_done": steps_done,
             },
             file_path,
         )
         print(f"Model saved to {file_path}")
 
-    def load(self, file_path="policy_net.pth"):
-        """정책 네트워크와 타겟 네트워크 불러오기"""
-        global steps_done
+    def load_policy_net(self, file_path="policy_net.pth"):
         checkpoint = torch.load(file_path, map_location=device)
         policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
-        target_net.load_state_dict(checkpoint["target_net_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        steps_done = checkpoint.get("steps_done", 0)
+        print(f"Model loaded from {file_path}")
+
+    def load_parking_net(self, file_path="parking_policy_net.pth"):
+        checkpoint = torch.load(file_path, map_location=device, weights_only=True)
+        parking_policy_net.load_state_dict(checkpoint["parking_policy_net_state_dict"])
         print(f"Model loaded from {file_path}")
 
 
 def skip_step(
-    action: torch.Tensor,
+    action: int,
 ):
     done = False
-    a = action_space[action.item()]
     for _ in range(2):
-        observation, reward, terminated, truncated, _ = ENV.step(a)
+        observation, reward, terminated, truncated, _ = ENV.step(action)
         done = terminated or truncated
         if done:
             break
@@ -186,30 +197,53 @@ def train(agent: RoadHogRLAgent):
 
     num_episodes = 600
 
+    # 클리어 조건 임계값 설정
+    distance_threshold = 0.1
+    sin_threshold = 0.1
     for episode in range(num_episodes):
         agent.reset()
         observation, _ = ENV.reset()
-        pre_state = parse_state(observation["observation"], observation["goal_spot"])
-        state_t = torch.tensor(pre_state, dtype=torch.float32, device=device).unsqueeze(
-            0
-        )
 
         episode_reward = 0.0
         goal = False
-
-        agent.env_reset()
         while 1:
+            # 객체가 주차장에 진입
+            if observation["observation"][0][0] <= -55:
+                action = agent.policy_net_act(observation)
+                observation, done = skip_step(action)
+                pre_state = parse_state(
+                    observation["observation"], observation["goal_spot"]
+                )
+                state_t = torch.tensor(
+                    pre_state, dtype=torch.float32, device=device
+                ).unsqueeze(0)
+
+                agent.X = pre_state[0]
+                agent.Y = pre_state[1]
+                continue
+
             action = agent.train_act(state_t)
-            observation, done1 = skip_step(action)
+            observation, done1 = skip_step(action.item())
             state = parse_state(observation["observation"], observation["goal_spot"])
-            reward, done2 = calculate_reward(pre_state, state)
+            reward, done2 = calculate_reward(pre_state, state, (agent.X, agent.Y))
             pre_state = state
 
             done = done1 or done2
 
-            if -60 <= state[0] <= -50:
-                done = True
-                reward = 50.0
+            # 클리어 확인
+            if done:
+                x, y, sin = state[0], state[1], state[2]
+                target_x, target_y, target_sin = state[3], state[4], state[5]
+
+                # 거리와 sin 차이 계산
+                distance_to_target = ((x - target_x) ** 2 + (y - target_y) ** 2) ** 0.5
+                sin_difference = abs(sin - target_sin)
+                if (
+                    distance_to_target < distance_threshold
+                    and sin_difference < sin_threshold
+                ):
+                    goal = True
+                    reward = 50.0
 
             episode_reward += reward
             reward_t = torch.tensor([reward], device=device)
@@ -222,29 +256,29 @@ def train(agent: RoadHogRLAgent):
                     state, dtype=torch.float32, device=device
                 ).unsqueeze(0)
 
-            # 메모리에 변이 저장
-            memory.push(state_t, action, next_state, reward_t)
+            # 메모리에 저장
+            parking_memory.push(state_t, action, next_state, reward_t)
 
             # 다음 상태로 이동
             state_t = next_state
 
-            # (정책 네트워크에서) 최적화 한단계 수행
+            # 최적화
             agent.optimize_model()
 
-            # 목표 네트워크의 가중치를 소프트 업데이트
-            target_net_state_dict = target_net.state_dict()
-            policy_net_state_dict = policy_net.state_dict()
-            for key in policy_net_state_dict:
-                target_net_state_dict[key] = policy_net_state_dict[
+            # 목표 네트워크 가중치 소프트 업데이트
+            parking_target_net_state_dict = parking_target_net.state_dict()
+            parking_policy_net_state_dict = parking_policy_net.state_dict()
+            for key in parking_policy_net_state_dict:
+                parking_target_net_state_dict[key] = parking_policy_net_state_dict[
                     key
-                ] * TAU + target_net_state_dict[key] * (1 - TAU)
-            target_net.load_state_dict(target_net_state_dict)
+                ] * TAU + parking_target_net_state_dict[key] * (1 - TAU)
+            parking_target_net.load_state_dict(parking_target_net_state_dict)
 
             if done:
                 break
 
         rewards_history.append(episode_reward)
-        if episode % 100 == 0:
+        if episode % 10 == 0:
             print(f"episode: {episode} reward: {episode_reward}")
             print(f"agent x: {state[0]} agent y: {state[1]}")
             print()
@@ -252,15 +286,17 @@ def train(agent: RoadHogRLAgent):
 
 if __name__ == "__main__":
     agent = RoadHogRLAgent()
-    # train(agent)
-    # agent.save()
-    agent.load()
-    evaluate(agent)
+    agent.load_policy_net()
+    train(agent)
+    agent.save()
+
+    # evaluate(agent)
+
     # run_manual()
 
-    # print("Complete")
-    # plt.plot(range(len(rewards_history)), rewards_history, color="blue")
-    # plt.xlabel("Episode")
-    # plt.ylabel("Reward")
-    # plt.title("Rewards per Episode")
-    # plt.savefig("dqn-reward-history.png")
+    print("Complete")
+    plt.plot(range(len(rewards_history)), rewards_history, color="blue")
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title("Rewards per Episode")
+    plt.savefig("dqn-reward-history.png")
