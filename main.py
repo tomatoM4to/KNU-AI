@@ -13,18 +13,18 @@ from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.99
 TAU = 0.005
 LR = 1e-4
 
 EPS_START = 0.9
-EPS_END = 0.05
+EPS_END = 0.1
 EPS_DECAY = 1000
 
 steps_done = 0
 
-ENV = make_road_hog(show_screen=False)
+ENV = make_road_hog(show_screen=True)
 observation: Dict[str, Any] = ENV.reset()[0]
 is_on_load: bool = observation["is_on_load"]
 is_crashed: bool = observation["is_crashed"]
@@ -191,6 +191,7 @@ rewards_history = []
 
 
 def train(agent: RoadHogRLAgent):
+    global EPS_END
     observation: Dict[str, Any]
     done: bool
     goal: bool
@@ -225,8 +226,8 @@ def train(agent: RoadHogRLAgent):
                     pre_state, dtype=torch.float32, device=device
                 ).unsqueeze(0)
 
-                agent.X = pre_state[0]  # -57.624629974365234
-                agent.Y = pre_state[1]  # 2.134056568145752
+                agent.X = pre_state[0]
+                agent.Y = pre_state[1]
                 continue
             if agent.X <= -60:
                 break
@@ -236,6 +237,8 @@ def train(agent: RoadHogRLAgent):
             state = parse_state(observation["observation"], observation["goal_spot"])
             reward, done2 = calculate_reward(pre_state, state, (agent.X, agent.Y))
             pre_state = state
+            if agent.X < state[0]:
+                agent.X = state[0]
 
             done = done1 or done2
 
@@ -305,6 +308,10 @@ def train(agent: RoadHogRLAgent):
             print()
         if episode % 100 == 0 and episode != 0:
             agent.save()
+
+        if episode > 450:
+            EPS_END = 0.05
+
         action_record.clear()
 
 
@@ -316,7 +323,7 @@ if __name__ == "__main__":
 
     # evaluate(agent)
 
-    run_manual()
+    # run_manual()
 
     print("Complete")
     plt.plot(range(len(rewards_history)), rewards_history, color="blue")

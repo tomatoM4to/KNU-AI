@@ -56,7 +56,7 @@ def calculate_reward(
     target_x, target_y, target_sin = state[3], state[4], state[5]
 
     initial_x, initial_y = initialAgentLoc
-    boundaryX1 = initial_x - 3
+    boundaryX1 = initial_x - 1
     boundaryX2 = target_x + 3
     boundaryY1 = target_y - 3
     boundaryY2 = initial_y + 3
@@ -80,14 +80,17 @@ def calculate_reward(
 
     # X축 개선 시 보상
     if current_x_diff < pre_x_diff:
-        reward += 0.1
+        reward += 0.2
 
     # Y축 개선 시 보상
     if current_y_diff < pre_y_diff:
-        reward += 0.1
+        reward += 0.2
 
     # X, Y 개선이 있었다면 사인값 개선 여부 체크
     if reward > 0.0 and current_sin_diff < pre_sin_diff:
-        reward += 0.1
+        reward += 0.2
+
+    if current_sin_diff < 0.1:
+        reward += 0.2
 
     return reward, False
