@@ -5,6 +5,7 @@ from collections import namedtuple, deque
 import random
 import numpy as np
 from typing import Tuple
+import math
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,7 +53,7 @@ def calculate_reward(
     pre_state: list, state: list, initialAgentLoc: Tuple
 ) -> Tuple[float, bool]:
     pre_x, pre_y, pre_sin = pre_state[0], pre_state[1], pre_state[2]
-    x, y, sin = state[0], state[1], state[2]
+    x, y, sin_angle = state[0], state[1], state[2]
     target_x, target_y, target_sin = state[3], state[4], state[5]
 
     initial_x, initial_y = initialAgentLoc
@@ -61,36 +62,33 @@ def calculate_reward(
     boundaryY1 = target_y - 3
     boundaryY2 = initial_y + 3
 
+    reward = 0.0
+    done = False
+
     # 경계값 벗어나면 즉시 종료
     if x < boundaryX1 or x > boundaryX2 or y < boundaryY1 or y > boundaryY2:
         return -1.0, True
 
-    # 이전 step과 현재 step에서 x, y와 목표의 차이
-    pre_x_diff = abs(pre_x - target_x)
-    current_x_diff = abs(x - target_x)
-    pre_y_diff = abs(pre_y - target_y)
-    current_y_diff = abs(y - target_y)
+    # 거리 계산
+    dist = math.sqrt((x - target_x) ** 2 + (y - target_y) ** 2)
 
-    # 이전 step과 현재 step에서 사인값과 목표의 차이
-    pre_sin_diff = abs(pre_sin - target_sin)
-    current_sin_diff = abs(sin - target_sin)
+    # 거리 구간별 보상 정의
+    if dist >= 30:
+        # 멀리 있을 때 (직선적으로 유지)
+        if -0.3 <= sin_angle <= -0.2:
+            reward += 0.2
+    elif 20 <= dist < 30:
+        # 중간 거리 (약간의 방향 조정 필요)
+        if -0.6 <= sin_angle <= -0.4:
+            reward += 0.3
+    elif 10 <= dist < 20:
+        # 근접 거리 (더 큰 방향 조정 필요)
+        if -0.9 <= sin_angle <= -0.7:
+            reward += 0.5
+    elif dist < 10:
+        # 매우 근접 (정확히 목표 방향)
+        if -1.0 <= sin_angle <= -0.9:
+            reward += 1.0
+            done = True
 
-    # 보상
-    reward = 0.0
-
-    # X축 개선 시 보상
-    if current_x_diff < pre_x_diff:
-        reward += 0.5
-
-    # Y축 개선 시 보상
-    if current_y_diff < pre_y_diff:
-        reward += 0.5
-
-    # X, Y 개선이 있었다면 사인값 개선 여부 체크
-    if reward > 0.0 and current_sin_diff < pre_sin_diff:
-        reward += 0.5
-
-    if current_sin_diff < 0.1:
-        reward += 0.5
-
-    return reward, False
+    return reward, done

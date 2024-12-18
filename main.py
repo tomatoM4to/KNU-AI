@@ -13,7 +13,7 @@ from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.99
 TAU = 0.005
 LR = 1e-4
@@ -54,8 +54,9 @@ parking_memory = ReplayMemory(50000)
 class RoadHogRLAgent(RoadHogAgent):
     def __init__(self):
         super().__init__()
-        self.init_parking_action_space = deque([7] * 3 + [3] * 22 + [7] * 15 + [4] * 50)
+        self.init_parking_action_space = deque([7] * 3 + [3] * 22 + [7] * 6 + [4] * 120)
         self.init_action_space = deque([7, 7, 7, 3, 3, 7, 7, 7, 3, 3, 7, 7, 7])
+        self.parking_action_space = deque([3, 3])
         self.idx = -1
         self.action_box = []
         self.is_parking = False
@@ -64,13 +65,15 @@ class RoadHogRLAgent(RoadHogAgent):
 
     def reset(self):
         self.idx = -1
-        self.init_parking_action_space = deque([7] * 3 + [3] * 22 + [7] * 15 + [4] * 50)
+        self.init_parking_action_space = deque([7] * 3 + [3] * 22 + [7] * 6 + [4] * 120)
 
     def act(self, state):
         if state["observation"][0][0] >= -60:
             self.is_parking = True
 
         if self.is_parking:
+            if self.parking_action_space:
+                return self.parking_action_space.popleft()
             state = parse_state(state["observation"], state["goal_spot"])
             state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
             with torch.no_grad():
@@ -116,8 +119,9 @@ class RoadHogRLAgent(RoadHogAgent):
             with torch.no_grad():
                 return parking_policy_net(state).max(1).indices.view(1, 1)
         else:
+            a = [1, 0, 1, 1, 1, 1, 1, 1]
             return torch.tensor(
-                [[np.random.randint(2)]], device=device, dtype=torch.long
+                [[np.random.choice(a)]], device=device, dtype=torch.long
             )
 
     def optimize_model(self):
@@ -244,7 +248,6 @@ def train(agent: RoadHogRLAgent):
                 continue
             if agent.X <= -60:
                 break
-
             action = agent.train_act(state_t)
             observation, done1 = skip_step(action.item(), is_recording=True)
             state = parse_state(observation["observation"], observation["goal_spot"])
@@ -252,7 +255,8 @@ def train(agent: RoadHogRLAgent):
             pre_state = state
             if agent.X < state[0]:
                 agent.X = state[0]
-
+            dist = math.sqrt((state[0] - state[3]) ** 2 + (state[1] - state[4]) ** 2)
+            print(reward, state[2], dist)
             done = done1 or done2
 
             # 클리어 확인
@@ -291,37 +295,38 @@ def train(agent: RoadHogRLAgent):
             if done:
                 break
 
-        rewards_history.append(episode_reward)
-        if episode % 10 == 0:
-            print(f"episode: {episode} reward: {episode_reward}")
-            print(f"agent x: {state[0]} agent y: {state[1]}")
-            print(f"boundary x1: {agent.X - 3} boundary y2: {agent.Y + 3}")
-            print(f"boundary x2: {state[3] + 3} boundary y1: {state[4] - 3}")
-            print(f"target x: {state[3]} target y: {state[4]}")
-            eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(
-                -1.0 * steps_done / EPS_DECAY
-            )
-            print(f"eps_threshold: {eps_threshold}")
-            print(action_record)
-            print()
-        if episode % 100 == 0 and episode != 0:
-            agent.save()
+        # rewards_history.append(episode_reward)
+        # if episode % 10 == 0:
+        #     print(f"episode: {episode} reward: {episode_reward}")
+        #     print(f"agent x: {state[0]} agent y: {state[1]}")
+        #     print(f"boundary x1: {agent.X - 3} boundary y2: {agent.Y + 3}")
+        #     print(f"boundary x2: {state[3] + 3} boundary y1: {state[4] - 3}")
+        #     print(f"target x: {state[3]} target y: {state[4]}")
+        #     eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(
+        #         -1.0 * steps_done / EPS_DECAY
+        #     )
+        #     print(f"eps_threshold: {eps_threshold}")
+        #     print(action_record)
+        #     print()
+        # if episode % 100 == 0 and episode != 0:
+        #     agent.save()
 
-        if episode > 450:
-            EPS_END = 0.05
+        # if episode > 400:
+        #     EPS_END = 0.05
 
-        action_record.clear()
+        # action_record.clear()
+        print()
 
 
 if __name__ == "__main__":
     agent = RoadHogRLAgent()
     # agent.load_policy_net()
-    # train(agent)
-    # agent.save()
+    train(agent)
+    agent.save()
 
-    agent.load_policy_net()
-    agent.load_parking_net()
-    evaluate(agent)
+    # agent.load_policy_net()
+    # agent.load_parking_net()
+    # evaluate(agent)
 
     # run_manual()
 
