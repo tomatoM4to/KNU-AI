@@ -51,36 +51,29 @@ def parse_state(state: list, target: list):
 def calculate_reward(
     pre_state: list, state: list, initialAgentLoc: Tuple
 ) -> Tuple[float, bool]:
-    pre_x, pre_y, pre_sin = pre_state[0], pre_state[1], pre_state[2]
-    x, y, sin = state[0], state[1], state[2]
-    target_x, target_y, target_sin = state[3], state[4], state[5]
+    pre_x, pre_y = pre_state[0], pre_state[1]
+    x, y = state[0], state[1]
+    target_x, target_y = state[3], state[4]
 
-    # 초기 위치 추출
     initial_x, initial_y = initialAgentLoc
-    boundaryX1 = initial_x - 1  # 초기 위치 기준 x 경계
-    boundaryX2 = target_x + 3  # 목표 위치 기준 x 경계
-    boundaryY1 = target_y - 3  # 목표 위치 기준 y 경계
-    boundaryY2 = initial_y + 2  # 초기 위치 기준 y 경계
+    boundaryX1 = initial_x - 1
+    boundaryX2 = target_x + 3
+    boundaryY1 = target_y - 3
+    boundaryY2 = initial_y + 2
 
-    # 이전과 현재의 목표와의 거리 계산
+    # 이전 거리와 현재 거리
     pre_distance_to_target = ((pre_x - target_x) ** 2 + (pre_y - target_y) ** 2) ** 0.5
     current_distance_to_target = ((x - target_x) ** 2 + (y - target_y) ** 2) ** 0.5
 
-    # 목표 기울기(sin) 차이 계산
-    sin_difference = abs(sin - target_sin)
-
-    # 보상 정의
+    # 보상
     reward = 0.0
 
-    # 경계값 벗어나는 경우
+    # 경계값 벗어나면 즉시 종료
     if x < boundaryX1 or x > boundaryX2 or y < boundaryY1 or y > boundaryY2:
-        return -1.0, True
+        return -5.0, True
 
-    # 목표에 가까워지면 보상
-    if current_distance_to_target < pre_distance_to_target:
-        reward += 0.5
-
-    # 기울기 차이가 작을수록 보상 증가
-    reward += max(1.0 - sin_difference, 0)
+    # 거리 차이 기반 보상
+    distance_diff = pre_distance_to_target - current_distance_to_target
+    reward += distance_diff * 0.5  # 거리에 비례한 보상 스케일링
 
     return reward, False

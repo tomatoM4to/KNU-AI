@@ -168,10 +168,14 @@ class RoadHogRLAgent(RoadHogAgent):
         print(f"Model loaded from {file_path}")
 
 
+action_history = []
+
+
 def skip_step(
     action: int,
 ):
     done = False
+    action_space.append(action)
     for _ in range(2):
         observation, reward, terminated, truncated, _ = ENV.step(action)
         done = terminated or truncated
@@ -281,7 +285,9 @@ def train(agent: RoadHogRLAgent):
         if episode % 10 == 0:
             print(f"episode: {episode} reward: {episode_reward}")
             print(f"agent x: {state[0]} agent y: {state[1]}")
+            print(action_history)
             print()
+        action_history.clear()
 
 
 if __name__ == "__main__":
